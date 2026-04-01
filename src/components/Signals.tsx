@@ -26,7 +26,7 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
     });
 
     // Load viewed signals from localStorage for this session/day
-    const saved = localStorage.getItem(`viewed_signals_${profile?.uid}_${new Date().toISOString().split('T')[0]}`);
+    const saved = localStorage.getItem(`viewed_signals_${profile?.uid || 'guest'}_${new Date().toISOString().split('T')[0]}`);
     if (saved) {
       setViewedSignals(JSON.parse(saved));
     }
@@ -39,7 +39,7 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
 
     const today = new Date().toISOString().split('T')[0];
     const isNewDay = profile.lastAccessDate !== today;
-    const currentCount = isNewDay ? 0 : profile.dailyAccessCount;
+    const currentCount = isNewDay ? 0 : (profile.dailyAccessCount || 0);
 
     if (profile.membership === 'free' && currentCount >= 9) {
       toast.error('Batas harian tercapai (9/9). Tingkatkan ke Premium untuk akses tanpa batas!', {
@@ -57,14 +57,16 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
         lastAccessDate: today
       };
 
-      await updateDoc(doc(db, 'users', profile.uid), {
-        dailyAccessCount: newCount,
-        lastAccessDate: today
-      });
+      if (profile.uid) {
+        await updateDoc(doc(db, 'users', profile.uid), {
+          dailyAccessCount: newCount,
+          lastAccessDate: today
+        });
+      }
 
       const newViewed = [...viewedSignals, signalId];
       setViewedSignals(newViewed);
-      localStorage.setItem(`viewed_signals_${profile.uid}_${today}`, JSON.stringify(newViewed));
+      localStorage.setItem(`viewed_signals_${profile.uid || 'guest'}_${today}`, JSON.stringify(newViewed));
       setProfile(updatedProfile);
       
       toast.success('Sinyal Terbuka!', {

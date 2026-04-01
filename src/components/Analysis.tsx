@@ -119,6 +119,10 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
 
     setIsLogging(true);
     try {
+      if (!auth.currentUser) {
+        toast.error('Anda harus masuk untuk mencatat trade.');
+        return;
+      }
       await addDoc(collection(db, 'signals'), {
         pair: selectedPair,
         action: logAction,
@@ -1978,6 +1982,11 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                       }
                       setIsLogging(true);
                       try {
+                        if (!auth.currentUser) {
+                          toast.error('Anda harus masuk untuk mengaktifkan sinyal.');
+                          setIsLogging(false);
+                          return;
+                        }
                         await addDoc(collection(db, 'signals'), {
                           pair: selectedPair,
                           action: swingAction,

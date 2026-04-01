@@ -80,7 +80,7 @@ service cloud.firestore {
     // Rules for signals collection
     match /signals/{signalId} {
       // Allow everyone to read signals (shared feed)
-      allow read: if isAuthenticated();
+      allow read: if true;
       
       // Allow admins to do anything
       allow create, update, delete: if isAdmin();

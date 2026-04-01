@@ -24,8 +24,6 @@ export const Dashboard = ({ profile }: { profile: any }) => {
   }, []);
 
   useEffect(() => {
-    if (!auth.currentUser) return;
-
     // Fetch official active signals
     const qActive = query(
       collection(db, 'signals'),
@@ -42,13 +40,23 @@ export const Dashboard = ({ profile }: { profile: any }) => {
       handleFirestoreError(error, OperationType.GET, 'signals');
     });
 
-    // Fetch user-specific signals for stats
-    const qStats = query(
-      collection(db, 'signals'),
-      where('uid', '==', auth.currentUser.uid),
-      orderBy('createdAt', 'desc'),
-      limit(50)
-    );
+    // Fetch signals for stats (if logged in, user stats. if guest, global stats)
+    let qStats;
+    if (auth.currentUser) {
+      qStats = query(
+        collection(db, 'signals'),
+        where('uid', '==', auth.currentUser.uid),
+        orderBy('createdAt', 'desc'),
+        limit(50)
+      );
+    } else {
+      qStats = query(
+        collection(db, 'signals'),
+        where('type', '==', 'OFFICIAL'),
+        orderBy('createdAt', 'desc'),
+        limit(50)
+      );
+    }
 
     const unsubscribeStats = onSnapshot(qStats, (snapshot) => {
       const userSignals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));

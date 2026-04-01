@@ -17,15 +17,23 @@ export const Performance = () => {
   });
 
   useEffect(() => {
-    if (!auth.currentUser) return;
-
-    // Fetch signals for the current user
-    const q = query(
-      collection(db, 'signals'),
-      where('uid', '==', auth.currentUser.uid),
-      orderBy('createdAt', 'desc'),
-      limit(200)
-    );
+    // Fetch signals for stats (if logged in, user stats. if guest, global stats)
+    let q;
+    if (auth.currentUser) {
+      q = query(
+        collection(db, 'signals'),
+        where('uid', '==', auth.currentUser.uid),
+        orderBy('createdAt', 'desc'),
+        limit(200)
+      );
+    } else {
+      q = query(
+        collection(db, 'signals'),
+        where('type', '==', 'OFFICIAL'),
+        orderBy('createdAt', 'desc'),
+        limit(200)
+      );
+    }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allSignals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));

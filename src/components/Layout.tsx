@@ -1,6 +1,6 @@
 import React from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, TrendingUp, BarChart3, User, LogOut, ShieldCheck, Sparkles } from 'lucide-react';
+import { LayoutDashboard, TrendingUp, BarChart3, User, LogOut, ShieldCheck, Sparkles, Clock, MessageCircle, AlertTriangle } from 'lucide-react';
 import { auth, signOut } from '../firebase';
 import { motion } from 'motion/react';
 
@@ -12,6 +12,66 @@ export const Layout = ({ user, profile }: { user: any, profile: any }) => {
     await signOut(auth);
     navigate('/auth');
   };
+
+  if (profile?.membership === 'pending') {
+    return (
+      <div className="min-h-screen bg-[#050505] text-white font-sans flex items-center justify-center p-4">
+        <div className="bg-[#0A0A0A] border border-white/10 rounded-3xl p-8 max-w-md w-full text-center space-y-6">
+          <div className="w-16 h-16 bg-orange-500/10 text-orange-500 rounded-full flex items-center justify-center mx-auto">
+            <Clock size={32} />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">Menunggu Aktivasi</h2>
+            <p className="text-white/60 mt-2 text-sm">
+              Akun Anda sedang menunggu konfirmasi pembayaran. Silakan hubungi Admin melalui WhatsApp jika Anda sudah melakukan pembayaran.
+            </p>
+          </div>
+          <button
+            onClick={() => window.open(`https://wa.me/6282326933843?text=Halo Admin, saya ingin konfirmasi pembayaran untuk username: ${profile?.displayName}`, '_blank')}
+            className="w-full bg-green-500 text-white py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-green-600 transition-all flex items-center justify-center gap-2"
+          >
+            <MessageCircle size={18} /> Konfirmasi via WhatsApp
+          </button>
+          <button
+            onClick={handleLogout}
+            className="w-full bg-white/5 text-white/60 py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-white/10 transition-all"
+          >
+            Keluar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (profile?.membership === 'expired') {
+    return (
+      <div className="min-h-screen bg-[#050505] text-white font-sans flex items-center justify-center p-4">
+        <div className="bg-[#0A0A0A] border border-white/10 rounded-3xl p-8 max-w-md w-full text-center space-y-6">
+          <div className="w-16 h-16 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mx-auto">
+            <AlertTriangle size={32} />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">Langganan Berakhir</h2>
+            <p className="text-white/60 mt-2 text-sm">
+              Masa aktif langganan Anda telah berakhir. Silakan perpanjang langganan Anda untuk kembali mendapatkan akses ke sinyal premium.
+            </p>
+          </div>
+          <button
+            onClick={() => window.open(`https://wa.me/6282326933843?text=Halo Admin, saya ingin memperpanjang langganan untuk username: ${profile?.displayName}`, '_blank')}
+            className="w-full bg-green-500 text-white py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-green-600 transition-all flex items-center justify-center gap-2"
+          >
+            <MessageCircle size={18} /> Perpanjang via WhatsApp
+          </button>
+          <button
+            onClick={handleLogout}
+            className="w-full bg-white/5 text-white/60 py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-white/10 transition-all"
+          >
+            Keluar
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -91,7 +151,7 @@ export const Layout = ({ user, profile }: { user: any, profile: any }) => {
         <header className="h-16 border-b border-white/10 flex items-center justify-between px-8 bg-[#050505]/80 backdrop-blur-xl sticky top-0 z-40">
           <div className="flex items-center gap-4">
             <div className="md:hidden text-orange-500 font-bold italic">NINZ SIGNAL</div>
-            <div className="hidden md:block text-sm text-white/40">Selamat datang kembali, <span className="text-white font-medium">{user.displayName}</span></div>
+            <div className="hidden md:block text-sm text-white/40">Selamat datang kembali, <span className="text-white font-medium">{user.displayName || profile?.displayName}</span></div>
           </div>
           <div className="flex items-center gap-4">
             <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
@@ -99,7 +159,9 @@ export const Layout = ({ user, profile }: { user: any, profile: any }) => {
             }`}>
               {profile?.membership === 'premium' ? 'Premium' : 'Gratis'}
             </div>
-            <img src={user.photoURL} alt="Avatar" className="w-8 h-8 rounded-full border border-white/10" />
+            <div className="w-8 h-8 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-white/60">
+              <User size={16} />
+            </div>
           </div>
         </header>
 

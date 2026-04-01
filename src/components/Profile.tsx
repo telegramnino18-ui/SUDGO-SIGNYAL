@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { doc, db, updateDoc } from '../firebase';
-import { User, Mail, ShieldCheck, Bell, CreditCard, CheckCircle2, AlertCircle, ChevronRight, LogOut } from 'lucide-react';
+import { User, Mail, ShieldCheck, Bell, CreditCard, CheckCircle2, AlertCircle, ChevronRight, LogOut, Clock } from 'lucide-react';
 import { motion } from 'motion/react';
 import toast from 'react-hot-toast';
 import { auth, signOut } from '../firebase';
@@ -28,26 +28,6 @@ export const Profile = ({ profile, setProfile }: { profile: any, setProfile: any
     }
   };
 
-  const handleUpgrade = async () => {
-    setLoading(true);
-    // Simulate payment process
-    setTimeout(async () => {
-      try {
-        await updateDoc(doc(db, 'users', profile.uid), {
-          membership: 'premium'
-        });
-        setProfile({ ...profile, membership: 'premium' });
-        toast.success('Selamat datang di Premium!', {
-          icon: '💎',
-          style: { borderRadius: '12px', background: '#0A0A0A', color: '#fff', border: '1px solid #ffffff10' }
-        });
-      } catch (error) {
-        toast.error('Gagal meningkatkan akun.');
-      }
-      setLoading(false);
-    }, 1500);
-  };
-
   const handleLogout = async () => {
     await signOut(auth);
     navigate('/auth');
@@ -56,7 +36,9 @@ export const Profile = ({ profile, setProfile }: { profile: any, setProfile: any
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       <div className="flex items-center gap-6 p-8 bg-[#0A0A0A] border border-white/5 rounded-3xl">
-        <img src={auth.currentUser?.photoURL || ''} alt="Avatar" className="w-24 h-24 rounded-3xl border-2 border-orange-500/20" />
+        <div className="w-24 h-24 rounded-3xl border-2 border-orange-500/20 bg-white/5 flex items-center justify-center text-white/40">
+          <User size={48} />
+        </div>
         <div>
           <h1 className="text-3xl font-bold tracking-tight">{profile?.displayName}</h1>
           <p className="text-sm text-white/40 mt-1 flex items-center gap-2">
@@ -88,42 +70,39 @@ export const Profile = ({ profile, setProfile }: { profile: any, setProfile: any
           </div>
 
           <div className="flex-1 space-y-6">
-            {profile?.membership === 'free' ? (
-              <>
-                <div className="p-6 bg-white/5 rounded-2xl border border-white/5">
-                  <div className="text-2xl font-bold mb-2">Paket Gratis</div>
-                  <p className="text-xs text-white/40 leading-relaxed">Akses dasar ke sinyal dengan batas harian.</p>
-                  <ul className="mt-4 space-y-3">
-                    {[
-                      '9 Sinyal per hari',
-                      'Analisis pasar tertunda',
-                      'Statistik performa dasar',
-                      'Notifikasi standar'
-                    ].map((item) => (
-                      <li key={item} className="flex items-center gap-2 text-[11px] text-white/60">
-                        <CheckCircle2 size={14} className="text-orange-500" /> {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <button
-                  onClick={handleUpgrade}
-                  disabled={loading}
-                  className="w-full bg-orange-500 text-white py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2"
-                >
-                  {loading ? 'Memproses...' : 'Tingkatkan ke Premium'} <ChevronRight size={16} />
-                </button>
-              </>
-            ) : (
-              <div className="p-6 bg-orange-500/10 rounded-2xl border border-orange-500/20 text-center">
-                <ShieldCheck size={48} className="text-orange-500 mx-auto mb-4" />
-                <h3 className="text-xl font-bold mb-2 text-orange-500">Premium Aktif</h3>
-                <p className="text-xs text-white/60 leading-relaxed">Anda memiliki akses tanpa batas ke semua sinyal dan analitik real-time.</p>
-                <div className="mt-6 pt-6 border-t border-orange-500/10 text-[10px] text-orange-500 font-bold uppercase tracking-widest">
-                  Akses Seumur Hidup
-                </div>
+            <div className="p-6 bg-orange-500/10 rounded-2xl border border-orange-500/20 text-center relative overflow-hidden">
+              <div className="absolute -right-4 -top-4 text-orange-500/10">
+                <ShieldCheck size={120} />
               </div>
-            )}
+              <ShieldCheck size={48} className="text-orange-500 mx-auto mb-4 relative z-10" />
+              <h3 className="text-xl font-bold mb-2 text-orange-500 relative z-10">Premium Aktif</h3>
+              <p className="text-xs text-white/60 leading-relaxed relative z-10">
+                Anda memiliki akses ke semua sinyal dan analitik real-time.
+              </p>
+              
+              <div className="mt-6 pt-6 border-t border-orange-500/20 relative z-10">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Paket Saat Ini</span>
+                  <span className="text-xs font-bold text-orange-500">{profile?.selectedPackage || 'PREMIUM'}</span>
+                </div>
+                {profile?.expiresAt && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Berakhir Pada</span>
+                    <span className="text-xs font-bold text-white flex items-center gap-1">
+                      <Clock size={12} className="text-orange-500" />
+                      {profile.expiresAt.toDate().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <button
+              onClick={() => window.open(`https://wa.me/6282326933843?text=Halo Admin, saya ingin memperpanjang langganan untuk username: ${profile?.displayName}`, '_blank')}
+              className="w-full bg-white/5 text-white py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-white/10 transition-all border border-white/10 flex items-center justify-center gap-2"
+            >
+              <CreditCard size={16} /> Perpanjang Paket
+            </button>
           </div>
         </div>
 
@@ -168,18 +147,18 @@ export const Profile = ({ profile, setProfile }: { profile: any, setProfile: any
               </div>
             </div>
 
-          <div className="pt-8 border-t border-white/5">
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center justify-center gap-3 p-4 text-red-400 hover:bg-red-400/5 rounded-2xl transition-all border border-red-400/20"
-            >
-              <LogOut size={20} />
-              <span className="font-bold uppercase tracking-widest text-xs">Keluar Sesi</span>
-            </button>
+            <div className="pt-8 border-t border-white/5">
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center justify-center gap-3 p-4 text-red-400 hover:bg-red-400/5 rounded-2xl transition-all border border-red-400/20"
+              >
+                <LogOut size={20} />
+                <span className="font-bold uppercase tracking-widest text-xs">Keluar Sesi</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
   );
 };

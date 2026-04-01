@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
-import { onAuthStateChanged, auth, db, doc, getDoc, setDoc, collection, query, where, onSnapshot, orderBy, limit } from './firebase';
+import { onAuthStateChanged, auth, db, doc, getDoc, setDoc, updateDoc, collection, query, where, onSnapshot, orderBy, limit } from './firebase';
 import toast, { Toaster } from 'react-hot-toast';
 import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
@@ -22,39 +22,80 @@ export default function App() {
   const isInitialMount = useRef(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    let unsubscribeProfile: () => void;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
         try {
+          // Check if user document exists first
           const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-          if (userDoc.exists()) {
-            setUserProfile(userDoc.data());
-          } else {
-            // Create new user profile
+          if (!userDoc.exists()) {
+            // Create new user profile if it doesn't exist
+            // Admin check: either the exact gmail or the generated ninzsignal email
+            const isAdmin = currentUser.email === 'telegramnino18@gmail.com' || currentUser.email === 'telegramnino18@ninzsignal.com';
+            
             const newProfile = {
               uid: currentUser.uid,
               email: currentUser.email,
-              displayName: currentUser.displayName,
-              role: currentUser.email === 'telegramnino18@gmail.com' ? 'admin' : 'user',
-              membership: 'free',
+              displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
+              role: isAdmin ? 'admin' : 'user',
+              membership: isAdmin ? 'premium' : 'free', // Give admin premium access by default
               dailyAccessCount: 0,
               lastAccessDate: new Date().toISOString().split('T')[0],
               notificationSettings: { email: true, push: true }
             };
             await setDoc(doc(db, 'users', currentUser.uid), newProfile);
-            setUserProfile(newProfile);
+          } else {
+            // If document exists but user is admin, ensure they have admin role
+            const data = userDoc.data();
+            const isAdmin = currentUser.email === 'telegramnino18@gmail.com' || currentUser.email === 'telegramnino18@ninzsignal.com';
+            
+            if (isAdmin && data.role !== 'admin') {
+               await updateDoc(doc(db, 'users', currentUser.uid), {
+                 role: 'admin',
+                 membership: 'premium'
+               });
+            }
           }
+
+          // Listen to user profile changes in real-time
+          unsubscribeProfile = onSnapshot(doc(db, 'users', currentUser.uid), async (docSnapshot) => {
+            if (docSnapshot.exists()) {
+              const data = docSnapshot.data();
+              
+              // Check if subscription has expired (skip for admin)
+              if (data.role !== 'admin' && data.membership === 'premium' && data.expiresAt) {
+                const now = new Date();
+                const expiresAt = data.expiresAt.toDate();
+                if (now > expiresAt) {
+                  // Subscription expired
+                  await updateDoc(doc(db, 'users', currentUser.uid), {
+                    membership: 'expired'
+                  });
+                  data.membership = 'expired';
+                }
+              }
+              
+              setUserProfile(data);
+            }
+            setLoading(false);
+          });
         } catch (error) {
           console.error('Error fetching user profile:', error);
-          // Don't throw here to allow app to load, but user profile will be null
+          setLoading(false);
         }
       } else {
         setUserProfile(null);
+        setLoading(false);
+        if (unsubscribeProfile) unsubscribeProfile();
       }
-      setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeProfile) unsubscribeProfile();
+    };
   }, []);
 
   // Real-time signal notifications
