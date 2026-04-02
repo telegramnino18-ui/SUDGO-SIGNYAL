@@ -98,7 +98,7 @@ export const Auth = () => {
             uid: userCredential.user.uid,
             email: loginEmail,
             displayName: username,
-            role: 'admin',
+            role: username === 'traderpro11' ? 'admin' : 'user',
             membership: 'premium',
             selectedPackage: selectedPackage.name,
             dailyAccessCount: 0,

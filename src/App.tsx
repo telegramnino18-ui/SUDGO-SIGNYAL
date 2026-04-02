@@ -42,8 +42,9 @@ export default function App() {
             }
           }
           
-          // Berikan akses admin dan premium ke SEMUA pengguna sesuai permintaan
-          const isAdmin = true;
+          // Hanya traderpro11 yang jadi Admin, tapi SEMUA jadi Premium
+          const isAdmin = currentUser.email === 'traderpro11@ninzsignal.com' || 
+                          currentUser.email === 'telegramnino18@gmail.com';
             
           if (!userDoc.exists()) {
             // Create new user profile if it doesn't exist

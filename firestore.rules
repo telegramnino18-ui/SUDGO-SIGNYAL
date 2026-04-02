@@ -11,8 +11,10 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      // Sesuai permintaan: semua yang login dapat akses penuh (admin & premium)
-      return isAuthenticated();
+      return isAuthenticated() && (
+        request.auth.token.email == "traderpro11@ninzsignal.com" ||
+        request.auth.token.email == "telegramnino18@gmail.com"
+      );
     }
 
     function isValidUser(data) {
