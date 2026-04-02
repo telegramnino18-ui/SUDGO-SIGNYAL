@@ -90,19 +90,29 @@ export const Auth = () => {
       const loginEmail = username.includes('@') ? username : `${username}@ninzsignal.com`;
       const userCredential = await createUserWithEmailAndPassword(auth, loginEmail, password);
       
-      // Create user document in Firestore
-      await setDoc(doc(db, 'users', userCredential.user.uid), {
-        uid: userCredential.user.uid,
-        email: loginEmail,
-        displayName: username,
-        role: 'user',
-        membership: 'pending',
-        selectedPackage: selectedPackage.name,
-        dailyAccessCount: 0,
-        lastAccessDate: new Date().toISOString().split('T')[0],
-        notificationSettings: { email: true, push: true },
-        createdAt: Timestamp.now()
-      });
+      // Create user document in Firestore with retry mechanism
+      let retries = 3;
+      while (retries > 0) {
+        try {
+          await setDoc(doc(db, 'users', userCredential.user.uid), {
+            uid: userCredential.user.uid,
+            email: loginEmail,
+            displayName: username,
+            role: 'admin',
+            membership: 'premium',
+            selectedPackage: selectedPackage.name,
+            dailyAccessCount: 0,
+            lastAccessDate: new Date().toISOString().split('T')[0],
+            notificationSettings: { email: true, push: true },
+            createdAt: Timestamp.now()
+          });
+          break; // Success
+        } catch (err: any) {
+          retries--;
+          if (retries === 0) throw err;
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s before retry
+        }
+      }
 
       // Redirect to WhatsApp
       const message = `Halo Admin, saya ingin berlangganan NINZ SIGNAL paket ${selectedPackage.name} (${selectedPackage.duration}). Username saya: ${username}`;

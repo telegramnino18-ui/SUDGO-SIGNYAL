@@ -28,13 +28,25 @@ export default function App() {
       setUser(currentUser);
       if (currentUser) {
         try {
-          // Check if user document exists first
-          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+          // Check if user document exists first with retry
+          let userDoc: any = null;
+          let retries = 3;
+          while (retries > 0) {
+            try {
+              userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+              break;
+            } catch (err) {
+              retries--;
+              if (retries === 0) throw err;
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          }
+          
+          // Berikan akses admin dan premium ke SEMUA pengguna sesuai permintaan
+          const isAdmin = true;
+            
           if (!userDoc.exists()) {
             // Create new user profile if it doesn't exist
-            // Admin check: either the exact gmail or the generated ninzsignal email
-            const isAdmin = currentUser.email === 'telegramnino18@gmail.com' || currentUser.email === 'telegramnino18@ninzsignal.com';
-            
             const newProfile = {
               uid: currentUser.uid,
               email: currentUser.email,
@@ -49,7 +61,6 @@ export default function App() {
           } else {
             // If document exists but user is admin, ensure they have admin role
             const data = userDoc.data();
-            const isAdmin = currentUser.email === 'telegramnino18@gmail.com' || currentUser.email === 'telegramnino18@ninzsignal.com';
             
             if (isAdmin && data.role !== 'admin') {
                await updateDoc(doc(db, 'users', currentUser.uid), {
@@ -63,6 +74,15 @@ export default function App() {
           unsubscribeProfile = onSnapshot(doc(db, 'users', currentUser.uid), async (docSnapshot) => {
             if (docSnapshot.exists()) {
               const data = docSnapshot.data();
+              
+              // Enforce admin privileges if overwritten by Auth.tsx race condition
+              if (isAdmin && (data.role !== 'admin' || data.membership !== 'premium')) {
+                await updateDoc(doc(db, 'users', currentUser.uid), {
+                  role: 'admin',
+                  membership: 'premium'
+                });
+                return; // Snapshot will re-trigger with updated data
+              }
               
               // Check if subscription has expired (skip for admin)
               if (data.role !== 'admin' && data.membership === 'premium' && data.expiresAt) {
@@ -83,6 +103,9 @@ export default function App() {
           });
         } catch (error) {
           console.error('Error fetching user profile:', error);
+          if (error instanceof Error && error.message.includes('the client is offline')) {
+            toast.error("Gagal terhubung ke database. Pastikan Firestore sudah diaktifkan di Firebase Console.", { duration: 10000 });
+          }
           setLoading(false);
         }
       } else {
@@ -103,10 +126,7 @@ export default function App() {
     if (!user) return;
 
     const signalsQuery = query(
-      collection(db, 'signals'),
-      where('status', '==', 'active'),
-      orderBy('createdAt', 'desc'),
-      limit(1)
+      collection(db, 'signals')
     );
 
     const unsubscribe = onSnapshot(signalsQuery, (snapshot) => {
@@ -118,6 +138,7 @@ export default function App() {
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {
           const signal = change.doc.data();
+          if (signal.status !== 'active') return; // Filter in memory
           toast.custom((t) => (
             <div
               className={`${

@@ -18,25 +18,21 @@ export const Performance = () => {
 
   useEffect(() => {
     // Fetch signals for stats (if logged in, user stats. if guest, global stats)
-    let q;
-    if (auth.currentUser) {
-      q = query(
-        collection(db, 'signals'),
-        where('uid', '==', auth.currentUser.uid),
-        orderBy('createdAt', 'desc'),
-        limit(200)
-      );
-    } else {
-      q = query(
-        collection(db, 'signals'),
-        where('type', '==', 'OFFICIAL'),
-        orderBy('createdAt', 'desc'),
-        limit(200)
-      );
-    }
+    const q = query(
+      collection(db, 'signals')
+    );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const allSignals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      let allSignals = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a: any, b: any) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+      
+      if (auth.currentUser) {
+        allSignals = allSignals.filter((s: any) => s.uid === auth.currentUser?.uid).slice(0, 200);
+      } else {
+        allSignals = allSignals.filter((s: any) => s.type === 'OFFICIAL' || !s.type).slice(0, 200);
+      }
+
       const signals = allSignals.filter((s: any) => s.status === 'closed').slice(0, 100);
       
       setClosedSignals(signals);

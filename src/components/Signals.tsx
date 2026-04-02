@@ -12,12 +12,13 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
 
   useEffect(() => {
     const q = query(
-      collection(db, 'signals'),
-      where('type', '==', 'OFFICIAL'),
-      orderBy('createdAt', 'desc')
+      collection(db, 'signals')
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const signalsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const signalsData = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a: any, b: any) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0))
+        .filter((signal: any) => signal.type === 'OFFICIAL' || !signal.type); // Filter in memory, allow undefined type for backward compatibility
       setSignals(signalsData);
       setLoading(false);
     }, (error) => {

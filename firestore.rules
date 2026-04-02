@@ -1,38 +1,6 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // ===============================================================
-    // Assumed Data Model
-    // ===============================================================
-    //
-    // Collection: users
-    // Document ID: {uid}
-    // Fields:
-    //   - uid: string (required)
-    //   - email: string (required)
-    //   - displayName: string
-    //   - role: string (enum: ["admin", "user"])
-    //   - membership: string (enum: ["free", "premium"])
-    //   - dailyAccessCount: int
-    //   - lastAccessDate: string (YYYY-MM-DD)
-    //   - notificationSettings: map
-    //
-    // Collection: signals
-    // Document ID: {signalId}
-    // Fields:
-    //   - pair: string (enum: ["XAU/USD", "BTC/USD"])
-    //   - action: string (enum: ["BUY", "SELL"])
-    //   - entryPrice: number
-    //   - tp: number
-    //   - sl: number
-    //   - status: string (enum: ["active", "closed"])
-    //   - result: number
-    //   - createdAt: timestamp
-    //   - closedAt: timestamp
-    //   - analysis: string
-    //
-    // ===============================================================
-
     // Helper Functions
     function isAuthenticated() {
       return request.auth != null;
@@ -43,9 +11,8 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuthenticated() && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-         (request.auth.token.email == "telegramnino18@gmail.com" && request.auth.token.email_verified == true));
+      // Sesuai permintaan: semua yang login dapat akses penuh (admin & premium)
+      return isAuthenticated();
     }
 
     function isValidUser(data) {
@@ -53,47 +20,29 @@ service cloud.firestore {
              data.uid is string &&
              data.email is string &&
              data.role in ['admin', 'user'] &&
-             data.membership in ['free', 'premium'];
-    }
-
-    function isValidSignal(data) {
-      return data.keys().hasAll(['pair', 'action', 'entryPrice', 'tp', 'sl', 'status', 'createdAt', 'uid', 'type']) &&
-             data.pair in ['XAU/USD', 'BTC/USD'] &&
-             data.action in ['BUY', 'SELL'] &&
-             data.status in ['active', 'closed', 'open'] &&
-             data.type in ['ULTRASCALP', 'SWING', 'OFFICIAL'];
+             data.membership in ['free', 'premium', 'pending', 'expired'];
     }
 
     // Rules for users collection
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       
-      // Only allow creation of 'user' role by default, unless admin
+      // Allow creation if user is creating their own profile with 'user' role, or if admin
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && 
-                    (isOwner(userId) && request.resource.data.role == 'user' || isAdmin());
+                    ((isOwner(userId) && request.resource.data.role == 'user') || isAdmin());
       
-      // Allow users to update their own profile (except role)
+      // Allow users to update their own profile (except role), or admin to do anything
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && 
                     ((isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin());
     }
 
     // Rules for signals collection
     match /signals/{signalId} {
-      // Allow everyone to read signals (shared feed)
+      // Allow everyone to read signals
       allow read: if true;
       
       // Allow admins to do anything
       allow create, update, delete: if isAdmin();
-      
-      // Allow authenticated users to create their own signals
-      allow create: if isAuthenticated() && 
-                    request.resource.data.uid == request.auth.uid &&
-                    isValidSignal(request.resource.data);
-                    
-      // Allow users to update/delete their own signals
-      allow update, delete: if isAuthenticated() && 
-                            resource.data.uid == request.auth.uid &&
-                            isValidSignal(request.resource.data);
     }
   }
 }

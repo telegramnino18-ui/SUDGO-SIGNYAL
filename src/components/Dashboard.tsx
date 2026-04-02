@@ -26,40 +26,36 @@ export const Dashboard = ({ profile }: { profile: any }) => {
   useEffect(() => {
     // Fetch official active signals
     const qActive = query(
-      collection(db, 'signals'),
-      where('type', '==', 'OFFICIAL'),
-      where('status', '==', 'active'),
-      orderBy('createdAt', 'desc'),
-      limit(3)
+      collection(db, 'signals')
     );
 
     const unsubscribeActive = onSnapshot(qActive, (snapshot) => {
-      const active = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const active = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a: any, b: any) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0))
+        .filter((s: any) => (s.type === 'OFFICIAL' || !s.type) && s.status === 'active')
+        .slice(0, 3);
       setActiveSignals(active);
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, 'signals');
     });
 
     // Fetch signals for stats (if logged in, user stats. if guest, global stats)
-    let qStats;
-    if (auth.currentUser) {
-      qStats = query(
-        collection(db, 'signals'),
-        where('uid', '==', auth.currentUser.uid),
-        orderBy('createdAt', 'desc'),
-        limit(50)
-      );
-    } else {
-      qStats = query(
-        collection(db, 'signals'),
-        where('type', '==', 'OFFICIAL'),
-        orderBy('createdAt', 'desc'),
-        limit(50)
-      );
-    }
+    const qStats = query(
+      collection(db, 'signals')
+    );
 
     const unsubscribeStats = onSnapshot(qStats, (snapshot) => {
-      const userSignals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      let userSignals = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a: any, b: any) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+      
+      if (auth.currentUser) {
+        userSignals = userSignals.filter((s: any) => s.uid === auth.currentUser?.uid).slice(0, 50);
+      } else {
+        userSignals = userSignals.filter((s: any) => s.type === 'OFFICIAL' || !s.type).slice(0, 50);
+      }
+
       const closedSignals = userSignals.filter((s: any) => s.status === 'closed');
       const totalTrades = closedSignals.length;
       const wins = closedSignals.filter((s: any) => s.result > 0).length;

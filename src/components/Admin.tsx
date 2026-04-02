@@ -19,17 +19,22 @@ export const Admin = () => {
   });
 
   useEffect(() => {
-    const qSignals = query(collection(db, 'signals'), where('status', '==', 'active'), orderBy('createdAt', 'desc'));
+    const qSignals = query(collection(db, 'signals'));
     const unsubscribeSignals = onSnapshot(qSignals, (snapshot) => {
-      const signals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const signals = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a: any, b: any) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0))
+        .filter((signal: any) => signal.status === 'active'); // Filter in memory
       setActiveSignals(signals);
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, 'signals');
     });
 
-    const qUsers = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
+    const qUsers = query(collection(db, 'users'));
     const unsubscribeUsers = onSnapshot(qUsers, (snapshot) => {
-      const usersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const usersList = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a: any, b: any) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
       setUsers(usersList);
     }, (error) => {
       handleFirestoreError(error, OperationType.GET, 'users');

@@ -70,32 +70,45 @@ export const Profile = ({ profile, setProfile }: { profile: any, setProfile: any
           </div>
 
           <div className="flex-1 space-y-6">
-            <div className="p-6 bg-orange-500/10 rounded-2xl border border-orange-500/20 text-center relative overflow-hidden">
-              <div className="absolute -right-4 -top-4 text-orange-500/10">
-                <ShieldCheck size={120} />
-              </div>
-              <ShieldCheck size={48} className="text-orange-500 mx-auto mb-4 relative z-10" />
-              <h3 className="text-xl font-bold mb-2 text-orange-500 relative z-10">Premium Aktif</h3>
-              <p className="text-xs text-white/60 leading-relaxed relative z-10">
-                Anda memiliki akses ke semua sinyal dan analitik real-time.
-              </p>
-              
-              <div className="mt-6 pt-6 border-t border-orange-500/20 relative z-10">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Paket Saat Ini</span>
-                  <span className="text-xs font-bold text-orange-500">{profile?.selectedPackage || 'PREMIUM'}</span>
+            {profile?.membership === 'premium' ? (
+              <div className="p-6 bg-orange-500/10 rounded-2xl border border-orange-500/20 text-center relative overflow-hidden">
+                <div className="absolute -right-4 -top-4 text-orange-500/10">
+                  <ShieldCheck size={120} />
                 </div>
-                {profile?.expiresAt && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Berakhir Pada</span>
-                    <span className="text-xs font-bold text-white flex items-center gap-1">
-                      <Clock size={12} className="text-orange-500" />
-                      {profile.expiresAt.toDate().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
-                    </span>
+                <ShieldCheck size={48} className="text-orange-500 mx-auto mb-4 relative z-10" />
+                <h3 className="text-xl font-bold mb-2 text-orange-500 relative z-10">Premium Aktif</h3>
+                <p className="text-xs text-white/60 leading-relaxed relative z-10">
+                  Anda memiliki akses ke semua sinyal dan analitik real-time.
+                </p>
+                
+                <div className="mt-6 pt-6 border-t border-orange-500/20 relative z-10">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Paket Saat Ini</span>
+                    <span className="text-xs font-bold text-orange-500">{profile?.selectedPackage || 'PREMIUM'}</span>
                   </div>
-                )}
+                  {profile?.expiresAt && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Berakhir Pada</span>
+                      <span className="text-xs font-bold text-white flex items-center gap-1">
+                        <Clock size={12} className="text-orange-500" />
+                        {profile.expiresAt.toDate().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="p-6 bg-white/5 rounded-2xl border border-white/10 text-center relative overflow-hidden">
+                <div className="absolute -right-4 -top-4 text-white/5">
+                  <AlertCircle size={120} />
+                </div>
+                <AlertCircle size={48} className="text-white/40 mx-auto mb-4 relative z-10" />
+                <h3 className="text-xl font-bold mb-2 text-white/60 relative z-10">Member Gratis</h3>
+                <p className="text-xs text-white/40 leading-relaxed relative z-10">
+                  Anda saat ini menggunakan akses gratis. Upgrade ke Premium untuk mendapatkan sinyal eksklusif.
+                </p>
+              </div>
+            )}
             
             <button
               onClick={() => window.open(`https://wa.me/6282326933843?text=Halo Admin, saya ingin memperpanjang langganan untuk username: ${profile?.displayName}`, '_blank')}
