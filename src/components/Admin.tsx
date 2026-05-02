@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { collection, db, addDoc, updateDoc, doc, onSnapshot, query, orderBy, where, Timestamp, handleFirestoreError, OperationType } from '../firebase';
-import { TrendingUp, TrendingDown, Plus, X, CheckCircle2, AlertCircle, Clock, BarChart3, Target, ShieldCheck, Users, UserCheck } from 'lucide-react';
+import { collection, db, addDoc, updateDoc, doc, onSnapshot, query, orderBy, where, Timestamp, handleFirestoreError, OperationType, setDoc } from '../firebase';
+import { TrendingUp, TrendingDown, Plus, X, CheckCircle2, AlertCircle, Clock, BarChart3, Target, ShieldCheck, Users, UserCheck, BellRing, Save } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import toast from 'react-hot-toast';
+import { sendDiscordNotification, formatSignalMessage } from '../services/discordService';
 
 export const Admin = () => {
-  const [activeTab, setActiveTab] = useState<'signals' | 'users'>('signals');
+  const [activeTab, setActiveTab] = useState<'signals' | 'users' | 'settings'>('signals');
   const [activeSignals, setActiveSignals] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [settings, setSettings] = useState<any>({ discordWebhook: '' });
   const [showAddModal, setShowAddModal] = useState(false);
   const [newSignal, setNewSignal] = useState({
     pair: 'XAU/USD',
@@ -40,16 +42,23 @@ export const Admin = () => {
       handleFirestoreError(error, OperationType.GET, 'users');
     });
 
+    const unsubscribeSettings = onSnapshot(doc(db, 'settings', 'global'), (snapshot) => {
+      if (snapshot.exists()) {
+        setSettings(snapshot.data());
+      }
+    });
+
     return () => {
       unsubscribeSignals();
       unsubscribeUsers();
+      unsubscribeSettings();
     };
   }, []);
 
   const handleAddSignal = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await addDoc(collection(db, 'signals'), {
+      const signalData = {
         ...newSignal,
         entryPrice: parseFloat(newSignal.entryPrice),
         tp: parseFloat(newSignal.tp),
@@ -57,7 +66,16 @@ export const Admin = () => {
         status: 'active',
         createdAt: Timestamp.now(),
         result: 0
-      });
+      };
+      
+      await addDoc(collection(db, 'signals'), signalData);
+
+      // Send Discord Notification
+      if (settings.discordWebhook) {
+        const discordMsg = formatSignalMessage(signalData);
+        await sendDiscordNotification(settings.discordWebhook, discordMsg);
+      }
+
       setShowAddModal(false);
       setNewSignal({ pair: 'XAU/USD', action: 'BUY', entryPrice: '', tp: '', sl: '', analysis: '' });
       toast.success('Sinyal berhasil diposting!', {
@@ -136,6 +154,14 @@ export const Admin = () => {
           >
             Pengguna
           </button>
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`px-6 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${
+              activeTab === 'settings' ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'text-white/40 hover:text-white'
+            }`}
+          >
+            Pengaturan
+          </button>
         </div>
       </div>
 
@@ -159,7 +185,7 @@ export const Admin = () => {
                     </div>
                     <div className="font-bold text-sm tracking-tight">{signal.pair}</div>
                   </div>
-                  <div className={`text-[10px] font-bold uppercase tracking-widest ${signal.action === 'BUY' ? 'text-green-500' : 'text-red-500'}`}>
+                  <div className={`text-[10px] font-bold uppercase tracking-widest ${signal.action === 'BUY' ? 'text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]'}`}>
                     {signal.action === 'BUY' ? 'BELI' : 'JUAL'}
                   </div>
                 </div>
@@ -171,11 +197,11 @@ export const Admin = () => {
                   </div>
                   <div className="bg-white/5 p-2 rounded-lg text-center">
                     <div className="text-[8px] text-white/40 uppercase font-bold">TP</div>
-                    <div className="text-xs font-bold text-green-500">{signal.tp}</div>
+                    <div className="text-xs font-bold text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">{signal.tp}</div>
                   </div>
                   <div className="bg-white/5 p-2 rounded-lg text-center">
                     <div className="text-[8px] text-white/40 uppercase font-bold">SL</div>
-                    <div className="text-xs font-bold text-red-500">{signal.sl}</div>
+                    <div className="text-xs font-bold text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]">{signal.sl}</div>
                   </div>
                 </div>
 
@@ -185,7 +211,7 @@ export const Admin = () => {
                       const res = prompt('Masukkan profit/loss dalam pips (misal: 50 atau -30):');
                       if (res) handleCloseSignal(signal.id, parseFloat(res));
                     }}
-                    className="bg-green-500/10 text-green-500 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-green-500/20 transition-all"
+                    className="bg-cyan-400/10 text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-cyan-400/20 transition-all"
                   >
                     Tutup TP/SL
                   </button>
@@ -205,7 +231,7 @@ export const Admin = () => {
             )}
           </div>
         </>
-      ) : (
+      ) : activeTab === 'users' ? (
         <div className="bg-[#0A0A0A] border border-white/5 rounded-3xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -223,11 +249,11 @@ export const Admin = () => {
                     <td className="px-6 py-4 font-medium">{user.displayName || user.email?.split('@')[0]}</td>
                     <td className="px-6 py-4">
                       {user.membership === 'premium' ? (
-                        <span className="bg-cyan-500/20 text-cyan-400 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border border-cyan-500/30">
+                        <span className="bg-cyan-500/20 text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border border-cyan-500/30">
                           Aktif
                         </span>
                       ) : user.membership === 'expired' ? (
-                        <span className="bg-red-500/20 text-red-500 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border border-red-500/30">
+                        <span className="bg-fuchsia-500/20 text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)] px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border border-fuchsia-500/30 shadow-[0_0_15px_rgba(217,70,239,0.4)]">
                           Expired
                         </span>
                       ) : (
@@ -261,6 +287,71 @@ export const Admin = () => {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      ) : (
+        <div className="max-w-2xl mx-auto bg-[#0A0A0A] border border-white/5 rounded-3xl p-8 space-y-8">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500 drop-shadow-[0_0_10px_rgba(99,102,241,0.8)]">
+              <BellRing size={20} />
+            </div>
+            <h2 className="text-xl font-bold tracking-tight">Integrasi Discord</h2>
+          </div>
+
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold">Discord Webhook URL</label>
+              <input
+                type="text"
+                value={settings.discordWebhook}
+                onChange={(e) => setSettings({ ...settings, discordWebhook: e.target.value })}
+                className="w-full bg-white/5 border border-white/10 rounded-xl p-4 text-sm focus:border-indigo-500 outline-none"
+                placeholder="https://discord.com/api/webhooks/..."
+              />
+              <p className="text-[10px] text-white/40 leading-relaxed">
+                Sinyal baru akan dikirim secara otomatis ke channel Discord ini.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <button
+                onClick={async () => {
+                  try {
+                    await setDoc(doc(db, 'settings', 'global'), settings, { merge: true });
+                    toast.success('Pengaturan disimpan!', {
+                      style: { borderRadius: '12px', background: '#0A0A0A', color: '#fff', border: '1px solid #ffffff10' }
+                    });
+                  } catch (e) {
+                    handleFirestoreError(e, OperationType.WRITE, 'settings/global');
+                    toast.error('Gagal menyimpan pengaturan.');
+                  }
+                }}
+                className="w-full bg-indigo-500 text-white py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-indigo-600 transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2"
+              >
+                <Save size={16} /> Simpan Pengaturan
+              </button>
+
+              <button
+                onClick={async () => {
+                  if (!settings.discordWebhook) {
+                    toast.error('Masukkan Webhook URL terlebih dahulu!');
+                    return;
+                  }
+                  try {
+                    await sendDiscordNotification(settings.discordWebhook, {
+                      content: "🔔 **TES KONEKSI**: Webhook Discord berhasil terhubung dengan Ninz Signal!"
+                    });
+                    toast.success('Pesan tes terkirim ke Discord!');
+                  } catch (e: any) {
+                    console.error('Test Webhook Error:', e);
+                    toast.error(`Gagal: ${e.message || 'Cek koneksi/URL'}`);
+                  }
+                }}
+                className="w-full bg-white/5 border border-white/10 text-white py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+              >
+                <BellRing size={16} /> Tes Webhook
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -321,7 +412,7 @@ export const Admin = () => {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold text-green-500">Take Profit</label>
+                    <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">Take Profit</label>
                     <input
                       type="number"
                       step="any"
@@ -333,7 +424,7 @@ export const Admin = () => {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold text-red-500">Stop Loss</label>
+                    <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]">Stop Loss</label>
                     <input
                       type="number"
                       step="any"

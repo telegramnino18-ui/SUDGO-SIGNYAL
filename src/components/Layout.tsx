@@ -28,7 +28,7 @@ export const Layout = ({ user, profile }: { user: any, profile: any }) => {
           </div>
           <button
             onClick={() => window.open(`https://wa.me/6282326933843?text=Halo Admin, saya ingin konfirmasi pembayaran untuk username: ${profile?.displayName}`, '_blank')}
-            className="w-full bg-green-500 text-white py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-green-600 transition-all flex items-center justify-center gap-2"
+            className="w-full bg-cyan-400 text-white py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-cyan-500 transition-all flex items-center justify-center gap-2"
           >
             <MessageCircle size={18} /> Konfirmasi via WhatsApp
           </button>
@@ -47,7 +47,7 @@ export const Layout = ({ user, profile }: { user: any, profile: any }) => {
     return (
       <div className="min-h-screen bg-[#050505] text-white font-sans flex items-center justify-center p-4">
         <div className="bg-[#0A0A0A] border border-white/10 rounded-3xl p-8 max-w-md w-full text-center space-y-6">
-          <div className="w-16 h-16 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mx-auto">
+          <div className="w-16 h-16 bg-fuchsia-500/10 text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)] rounded-full flex items-center justify-center mx-auto">
             <AlertTriangle size={32} />
           </div>
           <div>
@@ -58,7 +58,7 @@ export const Layout = ({ user, profile }: { user: any, profile: any }) => {
           </div>
           <button
             onClick={() => window.open(`https://wa.me/6282326933843?text=Halo Admin, saya ingin memperpanjang langganan untuk username: ${profile?.displayName}`, '_blank')}
-            className="w-full bg-green-500 text-white py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-green-600 transition-all flex items-center justify-center gap-2"
+            className="w-full bg-cyan-400 text-white py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-cyan-500 transition-all flex items-center justify-center gap-2"
           >
             <MessageCircle size={18} /> Perpanjang via WhatsApp
           </button>
@@ -75,8 +75,8 @@ export const Layout = ({ user, profile }: { user: any, profile: any }) => {
 
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/signals', label: 'Sinyal', icon: TrendingUp },
-    { path: '/analysis', label: 'Analisis', icon: Sparkles },
+    { path: '/signals', label: 'Signal', icon: TrendingUp },
+    { path: '/analysis', label: 'Analysis AI', icon: Sparkles },
     { path: '/performance', label: 'Performa', icon: BarChart3 },
     { path: '/profile', label: 'Profil', icon: User },
   ];
@@ -118,7 +118,7 @@ export const Layout = ({ user, profile }: { user: any, profile: any }) => {
         <div className="p-4 border-t border-white/10">
           <button
             onClick={handleLogout}
-            className="flex items-center gap-3 w-full px-4 py-3 text-white/60 hover:text-red-400 hover:bg-red-400/5 rounded-xl transition-all"
+            className="flex items-center gap-3 w-full px-4 py-3 text-white/60 hover:text-fuchsia-400 hover:bg-fuchsia-400/5 rounded-xl transition-all"
           >
             <LogOut size={20} />
             <span className="font-medium">Keluar</span>
@@ -165,7 +165,7 @@ export const Layout = ({ user, profile }: { user: any, profile: any }) => {
           </div>
         </header>
 
-        <div className="p-8 max-w-7xl mx-auto">
+        <div className="p-4 md:p-8 max-w-7xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}

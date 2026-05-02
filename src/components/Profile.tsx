@@ -163,7 +163,7 @@ export const Profile = ({ profile, setProfile }: { profile: any, setProfile: any
             <div className="pt-8 border-t border-white/5">
               <button
                 onClick={handleLogout}
-                className="w-full flex items-center justify-center gap-3 p-4 text-red-400 hover:bg-red-400/5 rounded-2xl transition-all border border-red-400/20"
+                className="w-full flex items-center justify-center gap-3 p-4 text-fuchsia-400 hover:bg-fuchsia-400/5 rounded-2xl transition-all border border-fuchsia-400/20"
               >
                 <LogOut size={20} />
                 <span className="font-bold uppercase tracking-widest text-xs">Keluar Sesi</span>

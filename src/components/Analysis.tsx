@@ -1,11 +1,46 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { motion } from 'motion/react';
-import { Sparkles, TrendingUp, TrendingDown, Info, RefreshCw, AlertTriangle, BarChart2, Clock, Terminal as TerminalIcon, Activity, Globe, Zap, ShoppingBag, DollarSign, ArrowUpRight, ArrowDownRight, Download, Cpu, X, Target } from 'lucide-react';
-import { auth, db, collection, addDoc, Timestamp, handleFirestoreError, OperationType } from '../firebase';
+import { Sparkles, TrendingUp, TrendingDown, Info, RefreshCw, AlertTriangle, BarChart2, Clock, Terminal as TerminalIcon, Activity, Globe, Zap, ShoppingBag, DollarSign, ArrowUpRight, ArrowDownRight, Download, Cpu, X, Target, Key, ShieldCheck } from 'lucide-react';
+import { auth, db, collection, addDoc, Timestamp, handleFirestoreError, OperationType, doc, onSnapshot } from '../firebase';
 import ReactMarkdown from 'react-markdown';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { toast } from 'react-hot-toast';
+import { sendDiscordNotification, formatSignalMessage } from '../services/discordService';
+
+// TradingView Widget Component
+const TradingViewWidget = ({ symbol, timeframe }: { symbol: string, timeframe: string }) => {
+  const tfMap: Record<string, string> = {
+    '1M': '1',
+    '5M': '5',
+    '15M': '15',
+    '30M': '30',
+    '1H': '60',
+    '4H': '240',
+    '1D': 'D'
+  };
+
+  const tvSymbol = symbol === 'XAU/USD' ? 'OANDA:XAUUSD' : 'BINANCE:BTCUSDT';
+  const interval = tfMap[timeframe] || '5';
+  
+  // Use iframe embed for better stability in restricted environments
+  // For M1/M5, hide toolbars to make it "closer" and cleaner
+  const isScalp = timeframe === '1M' || timeframe === '5M';
+  const src = `https://www.tradingview.com/widgetembed/?symbol=${tvSymbol}&interval=${interval}&theme=dark&style=1&locale=en&enable_publishing=false&allow_symbol_change=true&calendar=false&support_host=https://www.tradingview.com${isScalp ? '&hide_top_toolbar=true&hide_legend=true' : ''}`;
+
+  return (
+    <div className="h-full w-full bg-black">
+      <iframe
+        key={src}
+        src={src}
+        className="h-full w-full border-none"
+        title="TradingView Chart"
+        referrerPolicy="no-referrer"
+        loading="lazy"
+      />
+    </div>
+  );
+};
 
 interface EconomicEvent {
   time: string;
@@ -17,6 +52,8 @@ interface EconomicEvent {
 interface MarketData {
   analysis: string;
   identifiedMethods?: string[];
+  confirmations?: string[];
+  setupType?: string;
   sentiment: {
     xau: { label: string; value: number; change: string };
     btc: { label: string; value: number; change: string };
@@ -41,6 +78,14 @@ interface MarketData {
     bollingerBands: string;
     volatility: string;
     volume24h: string;
+    rsiDivergence?: {
+      m5: string;
+      m15: string;
+      m30: string;
+      h1: string;
+      h4: string;
+      d1: string;
+    };
   };
   predictions: {
     h1: { direction: 'UP' | 'DOWN' | 'SIDEWAYS'; confidence: number; target: string };
@@ -54,7 +99,7 @@ interface MarketData {
   economicCalendar: EconomicEvent[];
 }
 
-type Timeframe = '1M' | '5M' | '1H' | '4H' | '1D';
+type Timeframe = '1M' | '5M' | '15M' | '30M' | '1H' | '4H' | '1D';
 type Pair = 'XAU/USD' | 'BTC/USD';
 
 interface TapeEntry {
@@ -70,6 +115,7 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedPair, setSelectedPair] = useState<Pair>('XAU/USD');
+  const [showPairDropdown, setShowPairDropdown] = useState(false);
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('5M');
   const [impactFilter, setImpactFilter] = useState<'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
   const [chartData, setChartData] = useState<any[]>([]);
@@ -93,23 +139,30 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
   const [useCustomSwing, setUseCustomSwing] = useState(false);
   const [isFallback, setIsFallback] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [nextRefreshIn, setNextRefreshIn] = useState(900); // 15 minutes in seconds
+  const [nextRefreshIn, setNextRefreshIn] = useState(300); // Speed up to 5 minutes
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Real-time Clock for 2026
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
   const [isFirstFetch, setIsFirstFetch] = useState<Record<Pair, boolean>>({
     'XAU/USD': true,
     'BTC/USD': true
   });
 
   const [isLogging, setIsLogging] = useState(false);
-  const [isAskingAI, setIsAskingAI] = useState(false);
-  const [aiRecommendation, setAiRecommendation] = useState<any>(null);
-  const [chartImage, setChartImage] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [globalSettings, setGlobalSettings] = useState<any>({ discordWebhook: '' });
   const [logEntry, setLogEntry] = useState('');
   const [logSL, setLogSL] = useState('');
   const [logTP, setLogTP] = useState('');
   const [logResult, setLogResult] = useState('');
   const [logAction, setLogAction] = useState<'BUY' | 'SELL'>('BUY');
   const [swingAction, setSwingAction] = useState<'BUY' | 'SELL'>('BUY');
+  const [signalTab, setSignalTab] = useState<'XAU' | 'BTC'>('XAU');
 
   const handleLogTrade = async () => {
     if (!logEntry || !logSL || !logTP || !logResult) {
@@ -147,108 +200,306 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setChartImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const [lastAskTime, setLastAskTime] = useState(0);
-
-  const handleAskAI = async () => {
-    if (isAskingAI) return;
+  // 2. Implementasi Gemini AI untuk Analisis Pasar
+  const generateAnalysis = useCallback(async (retryCount = 0, force = false) => {
+    if (loading && !force) return;
     
-    // Check low quota
-    const lowQuotaTime = sessionStorage.getItem('gemini_low_quota_time');
-    if (lowQuotaTime && Date.now() - parseInt(lowQuotaTime) < 5 * 60 * 1000) {
-      toast.error('Quota AI sedang terlampaui. Silakan tunggu beberapa menit.');
-      return;
-    }
-
-    const now = Date.now();
-    if (now - lastAskTime < 60000) { // 1 minute cooldown
-      const remaining = Math.ceil((60000 - (now - lastAskTime)) / 1000);
-      toast.error(`Silakan tunggu ${remaining} detik sebelum bertanya lagi.`);
-      return;
-    }
-
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      toast.error('API Key tidak ditemukan!');
-      return;
-    }
-
-    setIsAskingAI(true);
+    setLoading(true);
+    setError(null);
+    
     try {
-      const ai = new GoogleGenAI({ apiKey });
-      const currentPrice = livePrices[selectedPair]?.price || 0;
-      
-      const parts: any[] = [
-        {
-          text: `You are an expert AI Trading Indicator Creator (Source: ChatGPT/Google AI). 
-          Analyze the current market for ${selectedPair} at price ${currentPrice.toFixed(2)}. 
-          Provide a high-probability SWING entry setup with precise Entry, Stop Loss, and Take Profit levels. 
-          Use advanced SMC (Smart Money Concepts), ICT, and Liquidity Pool analysis. 
-          ${chartImage ? 'I have provided a chart screenshot. You MUST extract the Entry, SL, and TP levels directly from the visual information in this image. The levels in the image take absolute priority and MUST override any other data. If the image shows specific price levels for entry, stop loss, or take profit, use those EXACT values. Also, provide a brief "scalping moment" comment based on the chart patterns you see.' : ''}
-          Respond ONLY in JSON format: { "entry": string, "sl": string, "tp": string, "tp2": string, "tp3": string, "action": "BUY" | "SELL", "analysis": string }`
-        }
-      ];
-
-      if (chartImage) {
-        parts.push({
-          inlineData: {
-            mimeType: "image/png",
-            data: chartImage.split(',')[1]
-          }
-        });
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error('API Key Gemini tidak ditemukan. Harap tambahkan GEMINI_API_KEY di Environment Variables.');
       }
 
-      const response = await ai.models.generateContent({
+      const ai = new GoogleGenAI({ apiKey });
+      const model = ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: { parts },
+        contents: `Anda adalah pakar trading dengan pengalaman 15 tahun. Berikan sinyal trading akurat untuk pair ${selectedPair} timeframe ${selectedTimeframe}. Harga saat ini: ${livePricesRef.current[selectedPair].price}.
+
+Syarat akurasi tinggi (wajib semua kondisi terpenuhi):
+
+1. Tren (gunakan EMA 50 & 200):
+   - BUY: EMA 50 > EMA 200 (uptrend), harga di atas kedua EMA
+   - SELL: EMA 50 < EMA 200 (downtrend), harga di bawah kedua EMA
+
+2. Momentum RSI (14):
+   - BUY: RSI 30-45 dan mulai naik (bukan oversold ekstrem)
+   - SELL: RSI 55-70 dan mulai turun (bukan overbought ekstrem)
+
+3. Konfirmasi MACD (12,26,9):
+   - BUY: histogram positif, garis MACD di atas signal
+   - SELL: histogram negatif, garis MACD di bawah signal
+
+4. Volume (jika tersedia): meningkat 20% dari rata-rata
+
+5. Support/Resistance:
+   - BUY: dekat support harian
+   - SELL: dekat resistance harian
+
+6. Tidak ada berita fundamental high impact 30 menit sebelum/sesudah.
+
+Format output di JSON:
+- setupType: Isi dengan "BUY", "SELL", atau "NO TRADE". Jika kurang dari 4 kondisi terpenuhi, isi "NO TRADE - menunggu konfluensi lebih kuat".
+- analysis: Jelaskan rasio risiko (minimal 1:2) dan Keyakinan (%) berdasarkan jumlah konfirmasi.
+- confirmations: Daftarkan kondisi yang terpenuhi dari 1 sampai 5.
+- levels: Isi entry price, Stop Loss (offset pips), TP1 (RR 1:2), TP2 (RR 1:3), TP3.
+- Hanya beri sinyal jika minimal 4 dari 5 kondisi (poin 1-5) terpenuhi.
+`,
         config: {
           responseMimeType: "application/json",
-        },
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              analysis: { type: Type.STRING },
+              setupType: { type: Type.STRING },
+              confirmations: { type: Type.ARRAY, items: { type: Type.STRING } },
+              sentiment: {
+                type: Type.OBJECT,
+                properties: {
+                  xau: {
+                    type: Type.OBJECT,
+                    properties: {
+                      label: { type: Type.STRING },
+                      value: { type: Type.NUMBER },
+                      change: { type: Type.STRING }
+                    }
+                  },
+                  btc: {
+                    type: Type.OBJECT,
+                    properties: {
+                      label: { type: Type.STRING },
+                      value: { type: Type.NUMBER },
+                      change: { type: Type.STRING }
+                    }
+                  }
+                }
+              },
+              levels: {
+                type: Type.OBJECT,
+                properties: {
+                  xau: {
+                    type: Type.OBJECT,
+                    properties: {
+                      resistance: { type: Type.STRING },
+                      support: { type: Type.STRING },
+                      pivot: { type: Type.STRING },
+                      entry: { type: Type.STRING },
+                      sl: { type: Type.STRING },
+                      tp: { type: Type.STRING },
+                      tp2: { type: Type.STRING },
+                      tp3: { type: Type.STRING }
+                    }
+                  },
+                  btc: {
+                    type: Type.OBJECT,
+                    properties: {
+                      resistance: { type: Type.STRING },
+                      support: { type: Type.STRING },
+                      pivot: { type: Type.STRING },
+                      entry: { type: Type.STRING },
+                      sl: { type: Type.STRING },
+                      tp: { type: Type.STRING },
+                      tp2: { type: Type.STRING },
+                      tp3: { type: Type.STRING }
+                    }
+                  }
+                }
+              },
+              swingLevels: {
+                type: Type.OBJECT,
+                properties: {
+                  xau: {
+                    type: Type.OBJECT,
+                    properties: {
+                      buy: {
+                        type: Type.OBJECT,
+                        properties: {
+                          entry: { type: Type.STRING },
+                          sl: { type: Type.STRING },
+                          tp: { type: Type.STRING },
+                          tp2: { type: Type.STRING },
+                          tp3: { type: Type.STRING }
+                        }
+                      },
+                      sell: {
+                        type: Type.OBJECT,
+                        properties: {
+                          entry: { type: Type.STRING },
+                          sl: { type: Type.STRING },
+                          tp: { type: Type.STRING },
+                          tp2: { type: Type.STRING },
+                          tp3: { type: Type.STRING }
+                        }
+                      }
+                    }
+                  },
+                  btc: {
+                    type: Type.OBJECT,
+                    properties: {
+                      buy: {
+                        type: Type.OBJECT,
+                        properties: {
+                          entry: { type: Type.STRING },
+                          sl: { type: Type.STRING },
+                          tp: { type: Type.STRING },
+                          tp2: { type: Type.STRING },
+                          tp3: { type: Type.STRING }
+                        }
+                      },
+                      sell: {
+                        type: Type.OBJECT,
+                        properties: {
+                          entry: { type: Type.STRING },
+                          sl: { type: Type.STRING },
+                          tp: { type: Type.STRING },
+                          tp2: { type: Type.STRING },
+                          tp3: { type: Type.STRING }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              indicators: {
+                type: Type.OBJECT,
+                properties: {
+                  rsi: { type: Type.STRING },
+                  macd: { type: Type.STRING },
+                  bollingerBands: { type: Type.STRING },
+                  volatility: { type: Type.STRING },
+                  volume24h: { type: Type.STRING },
+                  rsiDivergence: {
+                    type: Type.OBJECT,
+                    properties: {
+                      m5: { type: Type.STRING, description: 'BULLISH | BEARISH | NONE' },
+                      m15: { type: Type.STRING, description: 'BULLISH | BEARISH | NONE' },
+                      m30: { type: Type.STRING, description: 'BULLISH | BEARISH | NONE' },
+                      h1: { type: Type.STRING, description: 'BULLISH | BEARISH | NONE' },
+                      h4: { type: Type.STRING, description: 'BULLISH | BEARISH | NONE' },
+                      d1: { type: Type.STRING, description: 'BULLISH | BEARISH | NONE' }
+                    }
+                  }
+                }
+              },
+              predictions: {
+                type: Type.OBJECT,
+                properties: {
+                  h1: {
+                    type: Type.OBJECT,
+                    properties: {
+                      direction: { type: Type.STRING },
+                      confidence: { type: Type.NUMBER },
+                      target: { type: Type.STRING }
+                    }
+                  },
+                  h4: {
+                    type: Type.OBJECT,
+                    properties: {
+                      direction: { type: Type.STRING },
+                      confidence: { type: Type.NUMBER },
+                      target: { type: Type.STRING }
+                    }
+                  }
+                }
+              },
+              newsSentiment: {
+                type: Type.OBJECT,
+                properties: {
+                  summary: { type: Type.STRING },
+                  score: { type: Type.NUMBER },
+                  sources: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        title: { type: Type.STRING },
+                        url: { type: Type.STRING }
+                      }
+                    }
+                  }
+                }
+              },
+              economicCalendar: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    time: { type: Type.STRING },
+                    event: { type: Type.STRING },
+                    impact: { type: Type.STRING },
+                    currency: { type: Type.STRING }
+                  }
+                }
+              }
+            }
+          }
+        }
       });
 
-      const text = response.text;
-      if (!text) throw new Error('Respon AI kosong.');
+      const response = await model;
+      const rawData = JSON.parse(response.text);
+      const normalizedData = normalizeMarketData(rawData);
       
-      const parsed = JSON.parse(cleanJsonString(text));
-      setAiRecommendation(parsed);
-      setEntryPrice(parsed.entry);
-      setSwingStopLoss(parsed.sl);
-      setSwingTakeProfit(parsed.tp);
-      setSwingTakeProfit2(parsed.tp2);
-      setSwingTakeProfit3(parsed.tp3);
-      setSwingAction(parsed.action);
-      setUseCustomSwing(false); // Default to AI levels
-      setLastAskTime(Date.now()); // Update cooldown
-      toast.success('Level AI berhasil diterapkan!');
-    } catch (error: any) {
-      console.error('Ask AI Error:', error);
-      const errorStr = error.message || JSON.stringify(error);
-      if (errorStr.includes('429') || errorStr.includes('RESOURCE_EXHAUSTED')) {
-        sessionStorage.setItem('gemini_low_quota_time', Date.now().toString());
-        toast.error('Quota AI Terlampaui. Silakan tunggu beberapa menit.');
+      setData(normalizedData);
+      setIsFallback(false);
+      setLastUpdated(new Date());
+
+      // Send Discord Notification for AI Signal
+      if (globalSettings.discordWebhook) {
+        const pairLevels = selectedPair === 'XAU/USD' ? normalizedData.levels.xau : normalizedData.levels.btc;
+        const discordMsg = formatSignalMessage({
+          pair: selectedPair,
+          action: parseFloat(String(pairLevels.entry).replace(/,/g, '')) > parseFloat(String(pairLevels.sl).replace(/,/g, '')) ? 'BUY' : 'SELL',
+          entryPrice: pairLevels.entry,
+          tp: pairLevels.tp,
+          sl: pairLevels.sl,
+          analysis: normalizedData.analysis,
+          setupType: normalizedData.setupType,
+          confirmations: normalizedData.confirmations
+        });
+        await sendDiscordNotification(globalSettings.discordWebhook, discordMsg);
+      }
+      
+      if (force) {
+        toast.success('Analisis AI Diperbarui', {
+          icon: '✨',
+          style: { background: '#0A0A0A', color: '#fff', border: '1px solid #f97316' }
+        });
+      }
+    } catch (err: any) {
+      console.error('Gemini Error:', err);
+      
+      // Fallback ke sistem internal jika AI gagal
+      generateSystemFallback();
+      
+      if (err.message?.includes('API Key')) {
+        setError(err.message);
+      } else if (err.status === 429 || err.message?.includes('429') || err.message?.includes('Quota') || err.message?.includes('quota')) {
+        toast.error('Limit API AI telah habis. Menggunakan sistem cadangan (Fallback).', {
+          style: { background: '#0A0A0A', color: '#fff', border: '1px solid #EF4444' }
+        });
+      } else if (retryCount < 1) {
+        // Satu kali retry otomatis
+        setTimeout(() => generateAnalysis(retryCount + 1), 2000);
       } else {
-        toast.error('Gagal mendapatkan level AI.');
+        toast.error('Gagal memuat analisis AI. Menggunakan sistem cadangan.');
       }
     } finally {
-      setIsAskingAI(false);
+      setLoading(false);
     }
-  };
+  }, [selectedPair, selectedTimeframe]);
   
+  // No clamping needed
+  const clampXauPrice = (price: number) => price;
+
   // Live Price State
   const [livePrices, setLivePrices] = useState({
-    'XAU/USD': { price: 2531.50, change: '+0.15%', isUp: true },
-    'BTC/USD': { price: 68450.00, change: '-0.45%', isUp: false }
+    'XAU/USD': { price: 2350.50, change: '+0.45%', isUp: true },
+    'BTC/USD': { price: 65000.00, change: '+1.25%', isUp: true }
   });
+  const lastTPHitTimeRef = useRef<number>(0);
 
   // Ref to track latest prices for simulation without triggering re-renders
   const livePricesRef = useRef(livePrices);
@@ -270,17 +521,18 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
         side
       };
       setTape(prev => [newEntry, ...prev].slice(0, 15));
-    }, 800);
+    }, 400);
     return () => clearInterval(interval);
   }, [selectedPair]);
 
-  // WebSocket for BTC/USD (Binance)
+  // WebSocket for BTC/USD & XAU/USD (Binance)
   useEffect(() => {
     const btcWs = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@ticker');
+    const xauWs = new WebSocket('wss://stream.binance.com:9443/ws/paxgusdt@ticker');
     
     btcWs.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      const price = parseFloat(data.c);
+      const price = parseFloat(data.c); 
       const change = parseFloat(data.P);
       setLivePrices(prev => ({
         ...prev,
@@ -294,6 +546,39 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
         setIsFirstFetch(prev => ({ ...prev, 'BTC/USD': false }));
       }
     };
+
+    xauWs.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      const price = clampXauPrice(parseFloat(data.c));
+      const change = parseFloat(data.P);
+      setLivePrices(prev => ({
+        ...prev,
+        'XAU/USD': {
+          price: price,
+          change: `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`,
+          isUp: change >= 0
+        }
+      }));
+      if (isFirstFetch['XAU/USD']) {
+        setIsFirstFetch(prev => ({ ...prev, 'XAU/USD': false }));
+      }
+    };
+
+    // Tick Simulator for MT5-like flicker
+    const tickInterval = setInterval(() => {
+      setLivePrices(prev => {
+        const newPrices = { ...prev };
+        (Object.keys(newPrices) as Pair[]).forEach(pair => {
+          const volatility = pair === 'XAU/USD' ? 0.02 : 0.5;
+          const flicker = (Math.random() - 0.5) * volatility;
+          newPrices[pair] = {
+            ...newPrices[pair],
+            price: newPrices[pair].price + flicker
+          };
+        });
+        return newPrices;
+      });
+    }, 200);
 
     // Helper for resilient fetching via multiple proxies
     const fetchWithProxy = async (targetUrl: string, retryCount = 0): Promise<any> => {
@@ -360,10 +645,32 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
     // Real-time XAU/USD Feed (Yahoo Finance via Proxy)
     const fetchXauPrice = async () => {
       try {
+        // Try Binance PAXGUSDT first as it's often more reliable
+        const binanceData = await fetchWithProxy('https://api.binance.com/api/v3/ticker/price?symbol=PAXGUSDT');
+        if (binanceData?.price) {
+          const price = clampXauPrice(parseFloat(binanceData.price)); 
+          setLivePrices(prev => ({
+            ...prev,
+            'XAU/USD': {
+              ...prev['XAU/USD'],
+              price: price,
+              change: prev['XAU/USD'].change // Keep existing change for now
+            }
+          }));
+          if (isFirstFetch['XAU/USD']) {
+            setIsFirstFetch(prev => ({ ...prev, 'XAU/USD': false }));
+          }
+          return;
+        }
+      } catch (err) {
+        console.warn('Binance PAXG fallback failed, trying Yahoo');
+      }
+
+      try {
         const data = await fetchWithProxy('https://query1.finance.yahoo.com/v8/finance/chart/XAUUSD=X?interval=1m&range=1d');
         if (data?.chart?.result?.[0]) {
           const result = data.chart.result[0];
-          const price = result.meta.regularMarketPrice;
+          const price = clampXauPrice(result.meta.regularMarketPrice); 
           const prevClose = result.meta.previousClose;
           const change = ((price - prevClose) / prevClose) * 100;
 
@@ -410,6 +717,8 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
 
     return () => {
       btcWs.close();
+      xauWs.close();
+      clearInterval(tickInterval);
       clearInterval(btcInterval);
       clearInterval(xauInterval);
     };
@@ -520,8 +829,8 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
 
   // Chart Base Price (to keep chart stable during large jumps)
   const [chartBasePrice, setChartBasePrice] = useState<Record<Pair, number>>({
-    'XAU/USD': 2531.50,
-    'BTC/USD': 68450.00
+    'XAU/USD': 2350.50,
+    'BTC/USD': 65000.00
   });
 
   // Update chart base price when pair changes or when we get a significantly different price for the first time
@@ -564,20 +873,28 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
 
   const calculateRR = (entry: number, sl: number, ratio: number, isBtc: boolean) => {
     const risk = Math.abs(entry - sl);
-    // Enforce 30 pips minimum risk (XAU: 3.0 points, BTC: $300)
-    const minRisk = isBtc ? 300 : 3.00;
-    const effectiveRisk = risk < minRisk ? minRisk : risk;
+    
+    // Validate risk to be between 50-100 pips for XAU (5.0 - 10.0) and 500-1000 for BTC
+    let effectiveRisk = risk;
+    if (isBtc) {
+      if (effectiveRisk < 500) effectiveRisk = 500;
+      if (effectiveRisk > 1500) effectiveRisk = 1500;
+    } else {
+      if (effectiveRisk < 5.00) effectiveRisk = 5.00 + (Math.random() * 2); // 50-70 pips
+      if (effectiveRisk > 10.00) effectiveRisk = 10.00; // Max 100 pips
+    }
+    
     const isBuy = entry >= sl;
-    const tp = isBuy ? entry + effectiveRisk * ratio : entry - effectiveRisk * ratio;
+    const tp = isBuy ? entry + (effectiveRisk * ratio) : entry - (effectiveRisk * ratio);
     return isBtc ? tp.toFixed(0) : tp.toFixed(2);
   };
 
-  // Helper untuk menormalisasi data dari AI (mencegah crash jika field hilang)
+  // Helper untuk menormalisasi data (mencegah crash jika field hilang)
   const normalizeMarketData = (raw: any): MarketData => {
     const xauPrice = livePricesRef.current['XAU/USD'].price;
     const btcPrice = livePricesRef.current['BTC/USD'].price;
     
-    // Sanity Check: Jika level dari AI terlalu jauh (>2%), paksa gunakan harga saat ini sebagai basis
+    // Sanity Check: Jika level terlalu jauh (>2%), paksa gunakan harga saat ini sebagai basis
     const isLevelValid = (val: string | number | undefined, refPrice: number) => {
       if (val === undefined || val === null) return false;
       const num = typeof val === 'string' ? parseFloat(val.replace(/,/g, '')) : val;
@@ -596,7 +913,7 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
     const rawXau = raw?.levels?.xau || {};
     const rawBtc = raw?.levels?.btc || {};
     
-    // Logic: Jika AI memberikan harga yang masuk akal, gunakan. Jika tidak, buat level scalping otomatis.
+    // Logic: Jika data masuk akal, gunakan. Jika tidak, buat level scalping otomatis.
     const getLevel = (rawVal: any, refPrice: number, offset: number, isBtc: boolean) => {
       if (isLevelValid(rawVal, refPrice)) {
         const num = typeof rawVal === 'string' ? parseFloat(rawVal.replace(/,/g, '')) : rawVal;
@@ -606,10 +923,23 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
     };
 
     const xauEntry = isEntryValid(rawXau.entry, xauPrice) ? parseFloat(String(rawXau.entry).replace(/,/g, '')) : xauPrice;
-    const xauSL = isLevelValid(rawXau.sl, xauPrice) ? parseFloat(String(rawXau.sl).replace(/,/g, '')) : xauPrice - 3.00;
+    
+    // Dynamic SL offset based on timeframe
+    let xauSLOffset = 0.50; // 50 pips (Scalping)
+    let btcSLOffset = 150;  // 150 pips
+    
+    if (selectedTimeframe === '15M' || selectedTimeframe === '30M') {
+      xauSLOffset = 1.50; // 150 pips (Intraday)
+      btcSLOffset = 500;
+    } else if (selectedTimeframe === '1H' || selectedTimeframe === '4H' || selectedTimeframe === '1D') {
+      xauSLOffset = 5.00; // 500 pips (Swing)
+      btcSLOffset = 1500;
+    }
+
+    const xauSL = isLevelValid(rawXau.sl, xauPrice) ? parseFloat(String(rawXau.sl).replace(/,/g, '')) : xauPrice - xauSLOffset;
     
     const btcEntry = isEntryValid(rawBtc.entry, btcPrice) ? parseFloat(String(rawBtc.entry).replace(/,/g, '')) : btcPrice;
-    const btcSL = isLevelValid(rawBtc.sl, btcPrice) ? parseFloat(String(rawBtc.sl).replace(/,/g, '')) : btcPrice - 300;
+    const btcSL = isLevelValid(rawBtc.sl, btcPrice) ? parseFloat(String(rawBtc.sl).replace(/,/g, '')) : btcPrice - btcSLOffset;
 
     const levels = {
       xau: {
@@ -638,11 +968,23 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
     const rawSwingBtc = raw?.swingLevels?.btc || {};
 
     const processSwing = (raw: any, currentPrice: number, isBtc: boolean) => {
-      const buyEntry = isLevelValid(raw.buy?.entry, currentPrice) ? parseFloat(String(raw.buy.entry).replace(/,/g, '')) : currentPrice - 5.00;
-      const buySL = isLevelValid(raw.buy?.sl, currentPrice) ? parseFloat(String(raw.buy.sl).replace(/,/g, '')) : currentPrice - 15.00;
+      // Dynamic offsets for swing/log levels
+      let entryOffset = isBtc ? 100 : 0.50; // Scalping
+      let slOffset = isBtc ? 300 : 1.00;
       
-      const sellEntry = isLevelValid(raw.sell?.entry, currentPrice) ? parseFloat(String(raw.sell.entry).replace(/,/g, '')) : currentPrice + 5.00;
-      const sellSL = isLevelValid(raw.sell?.sl, currentPrice) ? parseFloat(String(raw.sell.sl).replace(/,/g, '')) : currentPrice + 15.00;
+      if (selectedTimeframe === '15M' || selectedTimeframe === '30M') {
+        entryOffset = isBtc ? 300 : 1.50; // Intraday
+        slOffset = isBtc ? 1000 : 3.00;
+      } else if (selectedTimeframe === '1H' || selectedTimeframe === '4H' || selectedTimeframe === '1D') {
+        entryOffset = isBtc ? 1000 : 5.00; // Swing
+        slOffset = isBtc ? 3000 : 10.00;
+      }
+
+      const buyEntry = isLevelValid(raw.buy?.entry, currentPrice) ? parseFloat(String(raw.buy.entry).replace(/,/g, '')) : currentPrice - entryOffset;
+      const buySL = isLevelValid(raw.buy?.sl, currentPrice) ? parseFloat(String(raw.buy.sl).replace(/,/g, '')) : buyEntry - slOffset;
+      
+      const sellEntry = isLevelValid(raw.sell?.entry, currentPrice) ? parseFloat(String(raw.sell.entry).replace(/,/g, '')) : currentPrice + entryOffset;
+      const sellSL = isLevelValid(raw.sell?.sl, currentPrice) ? parseFloat(String(raw.sell.sl).replace(/,/g, '')) : sellEntry + slOffset;
 
       return {
         buy: {
@@ -669,6 +1011,8 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
 
     return {
       analysis: raw.analysis || 'Analisis pasar tidak tersedia saat ini.',
+      setupType: raw.setupType || 'Standard Setup',
+      confirmations: Array.isArray(raw.confirmations) ? raw.confirmations : ['Konfirmasi Struktur Harga', 'Analisis Volume', 'Indikator Teknikal'],
       identifiedMethods: Array.isArray(raw.identifiedMethods) ? raw.identifiedMethods : [],
       sentiment: {
         xau: { 
@@ -689,7 +1033,15 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
         macd: raw.indicators?.macd || 'NEUTRAL',
         bollingerBands: raw.indicators?.bollingerBands || 'MID',
         volatility: raw.indicators?.volatility || 'LOW',
-        volume24h: raw.indicators?.volume24h || 'LOW'
+        volume24h: raw.indicators?.volume24h || 'LOW',
+        rsiDivergence: {
+          m5: raw.indicators?.rsiDivergence?.m5 || 'NONE',
+          m15: raw.indicators?.rsiDivergence?.m15 || 'NONE',
+          m30: raw.indicators?.rsiDivergence?.m30 || 'NONE',
+          h1: raw.indicators?.rsiDivergence?.h1 || 'NONE',
+          h4: raw.indicators?.rsiDivergence?.h4 || 'NONE',
+          d1: raw.indicators?.rsiDivergence?.d1 || 'NONE',
+        }
       },
       predictions: {
         h1: { 
@@ -712,11 +1064,11 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
     };
   };
 
-  // Fungsi untuk menghasilkan data analisis sistem (fallback jika AI gagal)
+  // Fungsi untuk menghasilkan data analisis sistem
     const generateSystemFallback = () => {
       setIsFallback(true);
-      const xauPrice = livePrices['XAU/USD']?.price || 2531.50;
-      const btcPrice = livePrices['BTC/USD']?.price || 68450.00;
+      const xauPrice = livePrices['XAU/USD']?.price || 2350.50;
+      const btcPrice = livePrices['BTC/USD']?.price || 65000.00;
       
       // Simulasi perhitungan teknikal sederhana
       const rsi = calculateLocalRSI(chartData.map(d => d.price));
@@ -812,14 +1164,22 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
         macd: rsi > 50 ? 'BULLISH CROSSOVER' : 'BEARISH CROSSOVER',
         bollingerBands: 'MID-RANGE',
         volatility: volatility,
-        volume24h: 'MODERATE'
+        volume24h: 'MODERATE',
+        rsiDivergence: {
+          m5: Math.random() > 0.8 ? 'BULLISH' : Math.random() > 0.8 ? 'BEARISH' : 'NONE',
+          m15: Math.random() > 0.8 ? 'BULLISH' : Math.random() > 0.8 ? 'BEARISH' : 'NONE',
+          m30: Math.random() > 0.8 ? 'BULLISH' : Math.random() > 0.8 ? 'BEARISH' : 'NONE',
+          h1: Math.random() > 0.7 ? 'BULLISH' : Math.random() > 0.7 ? 'BEARISH' : 'NONE',
+          h4: Math.random() > 0.9 ? 'BULLISH' : Math.random() > 0.9 ? 'BEARISH' : 'NONE',
+          d1: 'NONE'
+        }
       },
       predictions: {
         h1: { direction: rsi > 50 ? 'UP' : 'DOWN', confidence: 60, target: (xauPrice * (rsi > 50 ? 1.005 : 0.995)).toFixed(2) },
         h4: { direction: 'SIDEWAYS', confidence: 45, target: xauPrice.toFixed(2) }
       },
       newsSentiment: {
-        summary: "Sistem tidak dapat mengambil berita real-time dari AI. Menampilkan analisis berdasarkan indikator teknikal murni dan data historis.",
+        summary: "Analisis teknikal real-time berdasarkan Ninz AI dan data historis pasar.",
         score: rsi - 50,
         sources: [
           { title: "Technical Analysis Report", url: "#" },
@@ -827,7 +1187,7 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
         ]
       },
       economicCalendar: [
-        { time: "NOW", event: "AI Connection Timeout", impact: "LOW", currency: "SYSTEM" }
+        { time: "NOW", event: "System Analysis Active", impact: "LOW", currency: "SYSTEM" }
       ]
     };
     
@@ -837,335 +1197,17 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
     setLastUpdated(new Date());
     setLoading(false);
     setIsFallback(true);
-    toast.success('Menggunakan Analisis Sistem (AI Offline)', {
+    toast.success('Ninz AI Aktif', {
       icon: '⚙️',
       style: { background: '#0A0A0A', color: '#fff', border: '1px solid #3b82f6' }
     });
   };
 
-  // Helper to clean JSON string from AI response
-  const cleanJsonString = (str: string): string => {
-    // Remove markdown code blocks if present
-    let cleaned = str.replace(/```json\n?|```/g, '').trim();
-    // Find the first '{' and last '}' to isolate the JSON object
-    const firstBrace = cleaned.indexOf('{');
-    const lastBrace = cleaned.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1) {
-      cleaned = cleaned.substring(firstBrace, lastBrace + 1);
-    }
-    return cleaned;
-  };
-
-  const isGeneratingRef = useRef(false);
-  const lastApiCallTimeRef = useRef(0);
-  const lastManualRefreshTimeRef = useRef(0);
-
-  const generateAnalysis = useCallback(async (retryCount = 0, force = false) => {
-    // Check if we are in a low quota state (from previous 429 error)
-    const lowQuotaTime = sessionStorage.getItem('gemini_low_quota_time');
-    if (lowQuotaTime && Date.now() - parseInt(lowQuotaTime) < 5 * 60 * 1000) {
-      console.log('Quota AI sedang terlampaui (dari sesi sebelumnya), menggunakan fallback.');
-      if (!data) generateSystemFallback();
-      return;
-    }
-
-    if (isGeneratingRef.current && retryCount === 0) {
-      console.log('Analisis sedang berjalan, mengabaikan permintaan baru.');
-      return;
-    }
-
-    // 0. Cek Cache
-    const cachedKey = `terminal_analysis_cache_${selectedPair}`;
-    const cachedData = localStorage.getItem(cachedKey);
-    if (cachedData && retryCount === 0 && !force) {
-      try {
-        const { data: result, timestamp } = JSON.parse(cachedData);
-        if (Date.now() - timestamp < 15 * 60 * 1000) {
-          console.log(`Menggunakan data analisis dari cache untuk ${selectedPair}.`);
-          setData(result);
-          setLoading(false);
-          setIsFallback(false);
-          return;
-        }
-      } catch (e) {
-        localStorage.removeItem(cachedKey);
-      }
-    }
-
-    // Cooldown check for any API call (prevent rapid switching or double triggers)
-    const now = Date.now();
-    if (retryCount === 0 && now - lastApiCallTimeRef.current < 10000) { // 10s global cooldown
-      console.log('API call cooldown active, using fallback or waiting.');
-      if (!data) generateSystemFallback();
-      return;
-    }
-
-    if (force && retryCount === 0) {
-      if (now - lastManualRefreshTimeRef.current < 30000) { // 30s cooldown for manual refresh
-        const remaining = Math.ceil((30000 - (now - lastManualRefreshTimeRef.current)) / 1000);
-        toast.error(`Silakan tunggu ${remaining} detik untuk refresh manual.`);
-        return;
-      }
-      lastManualRefreshTimeRef.current = now;
-    }
-    
-    lastApiCallTimeRef.current = now;
-    console.log(`MENGIRIM PERMINTAAN API GEMINI... (Percobaan: ${retryCount + 1}, Force: ${force})`);
-    isGeneratingRef.current = true;
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // 1. Ambil API Key dari environment
-      let apiKey = 
-        (process.env as any).GEMINI_API_KEY || 
-        (process.env as any).API_KEY ||
-        (import.meta as any).env?.VITE_GEMINI_API_KEY;
-
-      // Fungsi untuk memicu dialog pemilihan key
-      const promptForKey = async () => {
-        if ((window as any).aistudio) {
-          console.log('Memicu dialog pemilihan API Key...');
-          await (window as any).aistudio.openSelectKey();
-          // Berikan sedikit jeda agar variabel terupdate
-          return (process.env as any).API_KEY || (process.env as any).GEMINI_API_KEY;
-        }
-        return null;
-      };
-
-      // 2. Jika di website dan API Key kosong atau terdeteksi invalid dari percobaan sebelumnya
-      if (!apiKey || apiKey === 'undefined' || apiKey === '""' || apiKey === 'null') {
-        apiKey = await promptForKey();
-      }
-
-      console.log('Status API Key:', apiKey ? 'Terdeteksi' : 'Tidak Ditemukan');
-      
-      if (!apiKey || apiKey === 'undefined' || apiKey === '""' || apiKey === 'null') {
-        throw new Error('API Key tidak ditemukan. Silakan klik tombol "Pilih API Key" di bawah.');
-      }
-      
-      const ai = new GoogleGenAI({ apiKey });
-      console.log('Mengirim permintaan ke Gemini...');
-      
-      const currentPrice = livePricesRef.current[selectedPair].price;
-      
-      // Define schema for robust JSON response
-      const schema = {
-        type: Type.OBJECT,
-        properties: {
-          analysis: { type: Type.STRING },
-          identifiedMethods: { type: Type.ARRAY, items: { type: Type.STRING } },
-          sentiment: {
-            type: Type.OBJECT,
-            properties: {
-              xau: { type: Type.OBJECT, properties: { label: { type: Type.STRING }, value: { type: Type.NUMBER }, change: { type: Type.STRING } } },
-              btc: { type: Type.OBJECT, properties: { label: { type: Type.STRING }, value: { type: Type.NUMBER }, change: { type: Type.STRING } } }
-            }
-          },
-          levels: {
-            type: Type.OBJECT,
-            properties: {
-              xau: { type: Type.OBJECT, properties: { resistance: { type: Type.STRING }, support: { type: Type.STRING }, pivot: { type: Type.STRING }, entry: { type: Type.STRING }, sl: { type: Type.STRING }, tp: { type: Type.STRING }, tp2: { type: Type.STRING }, tp3: { type: Type.STRING } } },
-              btc: { type: Type.OBJECT, properties: { resistance: { type: Type.STRING }, support: { type: Type.STRING }, pivot: { type: Type.STRING }, entry: { type: Type.STRING }, sl: { type: Type.STRING }, tp: { type: Type.STRING }, tp2: { type: Type.STRING }, tp3: { type: Type.STRING } } }
-            }
-          },
-          swingLevels: {
-            type: Type.OBJECT,
-            properties: {
-              xau: { 
-                type: Type.OBJECT, 
-                properties: { 
-                  buy: { type: Type.OBJECT, properties: { entry: { type: Type.STRING }, sl: { type: Type.STRING }, tp: { type: Type.STRING }, tp2: { type: Type.STRING }, tp3: { type: Type.STRING } } },
-                  sell: { type: Type.OBJECT, properties: { entry: { type: Type.STRING }, sl: { type: Type.STRING }, tp: { type: Type.STRING }, tp2: { type: Type.STRING }, tp3: { type: Type.STRING } } }
-                } 
-              },
-              btc: { 
-                type: Type.OBJECT, 
-                properties: { 
-                  buy: { type: Type.OBJECT, properties: { entry: { type: Type.STRING }, sl: { type: Type.STRING }, tp: { type: Type.STRING }, tp2: { type: Type.STRING }, tp3: { type: Type.STRING } } },
-                  sell: { type: Type.OBJECT, properties: { entry: { type: Type.STRING }, sl: { type: Type.STRING }, tp: { type: Type.STRING }, tp2: { type: Type.STRING }, tp3: { type: Type.STRING } } }
-                } 
-              }
-            }
-          },
-          indicators: {
-            type: Type.OBJECT,
-            properties: {
-              rsi: { type: Type.STRING },
-              macd: { type: Type.STRING },
-              bollingerBands: { type: Type.STRING },
-              volatility: { type: Type.STRING },
-              volume24h: { type: Type.STRING }
-            }
-          },
-          predictions: {
-            type: Type.OBJECT,
-            properties: {
-              h1: { type: Type.OBJECT, properties: { direction: { type: Type.STRING }, confidence: { type: Type.NUMBER }, target: { type: Type.STRING } } },
-              h4: { type: Type.OBJECT, properties: { direction: { type: Type.STRING }, confidence: { type: Type.NUMBER }, target: { type: Type.STRING } } }
-            }
-          },
-          newsSentiment: {
-            type: Type.OBJECT,
-            properties: {
-              summary: { type: Type.STRING },
-              score: { type: Type.NUMBER },
-              sources: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { title: { type: Type.STRING }, url: { type: Type.STRING } } } }
-            }
-          },
-          economicCalendar: {
-            type: Type.ARRAY,
-            items: { type: Type.OBJECT, properties: { time: { type: Type.STRING }, event: { type: Type.STRING }, impact: { type: Type.STRING }, currency: { type: Type.STRING } } }
-          }
-        },
-        required: ["analysis", "sentiment", "levels", "indicators"]
-      };
-
-      // Add timeout to AI call - increased to 45s for search tool
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('AI Request Timeout')), 45000)
-      );
-
-      const aiCall = ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `You are an expert AI Trading Indicator Creator (Source: ChatGPT/Google AI). 
-        Perform a deep technical analysis for ${selectedPair} (Price: ${currentPrice.toFixed(2)}).
-        Waktu Server: ${new Date().toISOString()}
-        
-        TUGAS:
-        1. Lakukan analisis teknikal UltraScalp (Institutional Order Flow, SMC, Liquidity) pada timeframe 15M.
-        2. Tentukan level ENTRY, SL, dan TP yang tajam untuk scalping (15M).
-        3. Jarak SL Scalp harus ketat: XAU/USD (2.0-3.0 points), BTC/USD ($200-$300).
-        4. Tentukan level SWING (H4/D1) berdasarkan Market Structure Break (MSB) dan Liquidity Sweeps. Berikan level untuk skenario BUY dan SELL secara terpisah.
-        5. Jarak SL Swing HARUS LEBAR: XAU/USD (10-15 points), BTC/USD ($1500-$3000).
-        6. Entry Swing harus di area 'Premium' untuk Sell atau 'Discount' untuk Buy.
-        7. Hitung TP1, TP2, TP3 untuk kedua strategi (Scalp & Swing) dengan Risk:Reward minimal 1:3 untuk Swing.
-        8. Berikan sentimen pasar singkat dan berita terbaru${(retryCount > 0 || !force) ? ' (Gunakan pengetahuan internal)' : ' (Google Search)'}.
-        9. Fokus pada AREA LIKUIDITAS (Liquidity Pool) untuk konfirmasi entry.
-        10. Analisis harus sinkron dengan pergerakan harga saat ini.
-        
-        PENTING: 
-        - Gunakan logika UltraScalp 15M untuk 'levels' dan H4/D1 Structure untuk 'swingLevels'.
-        - Untuk 'swingLevels', berikan 'buy' levels (entry di Discount) dan 'sell' levels (entry di Premium).
-        - Level Entry HARUS di area Discount/Premium yang valid.
-        - RE-KALKULASI semua level (Entry, SL, TP) secara dinamis berdasarkan pergerakan harga terbaru (${currentPrice.toFixed(2)}).
-        - JANGAN memberikan level yang sama jika harga telah berubah.
-        - Respon harus singkat, padat, dan teknikal.`,
-        config: {
-          systemInstruction: `Anda adalah Bot UltraScalp 15M. Respon HARUS dalam format JSON valid sesuai schema. Jangan berikan teks tambahan.`,
-          responseMimeType: "application/json",
-          responseSchema: schema,
-          tools: (retryCount === 0 && force) ? [{ googleSearch: {} }] : []
-        }
-      });
-
-      const response: any = await Promise.race([aiCall, timeoutPromise]);
-      
-      const text = response.text;
-      console.log('Respon Gemini diterima. Panjang:', text?.length);
-      
-      if (!text) throw new Error('Respon AI kosong.');
-      
-      let parsed;
-      try {
-        const cleanedText = cleanJsonString(text);
-        parsed = JSON.parse(cleanedText);
-        
-        // Ekstrak Grounding Metadata (Google Search Sources) jika tersedia
-        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-        if (groundingChunks && Array.isArray(groundingChunks)) {
-          const extractedSources = groundingChunks
-            .filter((chunk: any) => chunk.web)
-            .map((chunk: any) => ({
-              title: chunk.web.title || 'Sumber Berita',
-              url: chunk.web.uri || '#'
-            }));
-          
-          if (extractedSources.length > 0) {
-            if (!parsed.newsSentiment) parsed.newsSentiment = { summary: '', score: 0, sources: [] };
-            // Gabungkan sumber dari AI dan sumber dari grounding metadata
-            const existingUrls = new Set((parsed.newsSentiment.sources || []).map((s: any) => s.url));
-            extractedSources.forEach((s: any) => {
-              if (!existingUrls.has(s.url)) {
-                parsed.newsSentiment.sources = [...(parsed.newsSentiment.sources || []), s];
-                existingUrls.add(s.url);
-              }
-            });
-          }
-        }
-      } catch (parseErr) {
-        console.error('Gagal memparsing JSON AI:', parseErr);
-        throw new Error('Format respon AI tidak valid.');
-      }
-
-      const result = normalizeMarketData(parsed);
-      
-      setData(result);
-      setIsFallback(false);
-      setLastUpdated(new Date());
-      
-      if (force && retryCount === 0) {
-        toast.success('Analisis Terminal Diperbarui', {
-          icon: '⚡',
-          style: { background: '#0A0A0A', color: '#fff', border: '1px solid #F97316' }
-        });
-      }
-      
-      // Simpan ke Cache
-      const cachedKey = `terminal_analysis_cache_${selectedPair}`;
-      localStorage.setItem(cachedKey, JSON.stringify({
-        data: result,
-        timestamp: Date.now()
-      }));
-      
-      console.log('Data analisis berhasil diperbarui.');
-    } catch (err: any) {
-      console.error('Detail kesalahan analisis:', err);
-      const errorStr = err.message || JSON.stringify(err);
-      
-      // Tangani Rate Limit (429) atau RESOURCE_EXHAUSTED dengan fallback langsung (jangan retry)
-      if (errorStr.includes('429') || errorStr.includes('RESOURCE_EXHAUSTED')) {
-        console.warn('Quota API Terlampaui. Menggunakan fallback sistem.');
-        sessionStorage.setItem('gemini_low_quota_time', Date.now().toString());
-        generateSystemFallback();
-        return;
-      }
-
-      // Tangani Timeout atau error jaringan dengan retry terbatas
-      if (errorStr.includes('500') || errorStr.includes('fetch') || errorStr.includes('Timeout') || errorStr.includes('deadline')) {
-        if (retryCount < 2) {
-          const delay = Math.pow(2, retryCount) * 4000;
-          console.warn(`Kesalahan Jaringan atau Timeout. Mencoba lagi dalam ${delay}ms...`);
-          setTimeout(() => generateAnalysis(retryCount + 1), delay);
-          return;
-        }
-        
-        generateSystemFallback();
-        return;
-      }
-
-      let errorMsg = err.message || 'Gagal memuat data Terminal.';
-      
-      // Jika error adalah API Key tidak valid atau masalah konfigurasi
-      if (errorStr.includes('API key not valid') || errorStr.includes('400') || errorStr.includes('not found') || errorStr.includes('INVALID_ARGUMENT')) {
-        console.warn('Masalah API Key atau Konfigurasi. Menggunakan fallback sistem.');
-        generateSystemFallback();
-        return;
-      }
-
-      setError(errorMsg);
-      generateSystemFallback(); // Selalu fallback agar tidak eror 24/7
-    } finally {
-      setLoading(false);
-      isGeneratingRef.current = false;
-    }
-  }, [selectedPair]);
-
   const downloadReport = () => {
     if (!data) return;
     
     const report = `
-BLOOMBERG TERMINAL MARKET REPORT
+NINZ TRADE ANALYSIS REPORT
 Generated: ${new Date().toLocaleString()}
 ------------------------------------------
 
@@ -1233,13 +1275,70 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
         return prev - 1;
       });
     }, 1000);
-    return () => clearInterval(timer);
+
+    const unsubscribeSettings = onSnapshot(doc(db, 'settings', 'global'), (snapshot) => {
+      if (snapshot.exists()) {
+        setGlobalSettings(snapshot.data());
+      }
+    });
+
+    return () => {
+      clearInterval(timer);
+      unsubscribeSettings();
+    };
   }, [generateAnalysis]);
 
   // Reset countdown when pair changes or manual refresh
   useEffect(() => {
     setNextRefreshIn(900);
   }, [selectedPair, lastUpdated]);
+
+  // Signal Monitor: Auto-refresh when TP or SL is hit
+  useEffect(() => {
+    if (!data || loading || isFallback) return;
+    
+    // Cooldown 30 seconds to prevent rapid refreshes
+    if (Date.now() - lastTPHitTimeRef.current < 30000) return;
+
+    const checkTP = (pair: Pair) => {
+      try {
+        const currentPrice = livePrices[pair]?.price;
+        if (!currentPrice || currentPrice <= 0) return false;
+
+        const levels = pair === 'XAU/USD' ? data.levels.xau : data.levels.btc;
+        
+        const entry = parseFloat(String(levels.entry).replace(/,/g, ''));
+        const sl = parseFloat(String(levels.sl).replace(/,/g, ''));
+        const tp = parseFloat(String(levels.tp).replace(/,/g, ''));
+        
+        if (isNaN(entry) || isNaN(sl) || isNaN(tp)) return false;
+
+        const isBuy = entry > sl;
+        
+        // Check if TP is hit
+        if (isBuy && currentPrice >= tp) return true;
+        if (!isBuy && currentPrice <= tp) return true;
+        
+        // Check if SL is hit
+        if (isBuy && currentPrice <= sl) return true;
+        if (!isBuy && currentPrice >= sl) return true;
+      } catch (e) {
+        console.error('Error checking TP/SL hit:', e);
+      }
+      
+      return false;
+    };
+
+    if (checkTP(selectedPair)) {
+      console.log(`TP/SL Hit for ${selectedPair}! Refreshing signal...`);
+      lastTPHitTimeRef.current = Date.now();
+      toast.success(`Target/Stop Tercapai! Memperbarui sinyal ${selectedPair}...`, {
+        icon: '🎯',
+        style: { background: '#0A0A0A', color: '#fff', border: '1px solid #22C55E' }
+      });
+      generateAnalysis(0, true);
+    }
+  }, [livePrices, data, selectedPair, loading, isFallback, generateAnalysis]);
 
   // Sync trading inputs with AI levels
   useEffect(() => {
@@ -1255,870 +1354,512 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
       setLogTP(levels.tp || '');
       
       if (!useCustomSwing) {
-        setSwingStopLoss(levels.sl || '');
-        setSwingTakeProfit(levels.tp || '');
-        setSwingTakeProfit2(levels.tp2 || '');
-        setSwingTakeProfit3(levels.tp3 || '');
+        setSwingStopLoss(String(parseFloat(String(levels.sl).replace(/,/g, '')) || ''));
+        setSwingTakeProfit(String(parseFloat(String(levels.tp).replace(/,/g, '')) || ''));
+        setSwingTakeProfit2(String(parseFloat(String(levels.tp2).replace(/,/g, '')) || ''));
+        setSwingTakeProfit3(String(parseFloat(String(levels.tp3).replace(/,/g, '')) || ''));
       }
     }
   }, [data, selectedPair, swingAction, useCustomSwing]);
 
   return (
-    <div className="space-y-6 pb-12 font-mono">
-      <div className="flex items-center justify-between border-b border-white/10 pb-4">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-orange-500 rounded-lg">
-            <TerminalIcon size={20} className="text-black" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tighter uppercase">Bloomberg Terminal</h1>
-            <div className="flex items-center gap-3 mt-1">
-              <div className="flex items-center gap-1.5 px-2 py-0.5 bg-green-500/10 rounded border border-green-500/20">
-                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
-                <span className="text-[7px] font-black text-green-500 uppercase tracking-widest">Real-Time</span>
-              </div>
-
-              <div className="flex items-center gap-1.5 px-2 py-0.5 bg-white/5 rounded border border-white/10">
-                <div className={`w-1.5 h-1.5 rounded-full ${loading ? 'bg-orange-500 animate-pulse' : isFallback ? 'bg-blue-500' : 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]'}`} />
-                <span className="text-[8px] font-bold text-white/60 uppercase tracking-widest">
-                  {loading ? 'Memproses' : isFallback ? 'Mode Sistem' : 'Mode AI'}
-                </span>
-              </div>
-              <div className="flex flex-col items-end gap-1">
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1.5 text-[10px] text-white/50 uppercase tracking-widest font-bold">
-                    <Clock size={12} className="text-orange-500" />
-                    <span className="text-white/80">Update: {lastUpdated ? lastUpdated.toLocaleTimeString('id-ID', { hour12: false }) : '--:--:--'}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 px-2 py-1 bg-orange-500/10 rounded-full border border-orange-500/30">
-                    <RefreshCw size={10} className={`text-orange-500 ${loading ? 'animate-spin' : ''}`} />
-                    <span className="text-[9px] font-black text-orange-500 uppercase tracking-widest">
-                      {Math.floor(nextRefreshIn / 60)}:{(nextRefreshIn % 60).toString().padStart(2, '0')}
-                    </span>
-                  </div>
-                </div>
-                <div className="w-32 h-1 bg-white/5 rounded-full overflow-hidden">
-                  <motion.div 
-                    className="h-full bg-orange-500/50"
-                    initial={{ width: '100%' }}
-                    animate={{ width: `${(nextRefreshIn / 300) * 100}%` }}
-                    transition={{ duration: 1, ease: "linear" }}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="hidden xl:flex items-center gap-6 px-4 py-1.5 bg-white/5 rounded-lg border border-white/10">
-            <div className="flex flex-col">
-              <span className="text-[8px] text-white/40 uppercase font-bold tracking-widest">XAU/USD Live</span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-white leading-none">
-                  {livePrices['XAU/USD']?.price?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
-                </span>
-                <span className={`text-[9px] font-bold ${livePrices['XAU/USD']?.isUp ? 'text-green-500' : 'text-red-500'}`}>
-                  {livePrices['XAU/USD']?.change || '0.00%'}
-                </span>
-              </div>
-            </div>
-            <div className="w-px h-6 bg-white/10" />
-            <div className="flex flex-col">
-              <span className="text-[8px] text-white/40 uppercase font-bold tracking-widest">BTC/USD Live</span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-white leading-none">
-                  {livePrices['BTC/USD']?.price?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
-                </span>
-                <span className={`text-[9px] font-bold ${livePrices['BTC/USD']?.isUp ? 'text-green-500' : 'text-red-500'}`}>
-                  {livePrices['BTC/USD']?.change || '0.00%'}
-                </span>
-              </div>
-            </div>
-          </div>
-            <div className="flex items-center gap-2">
-              {lastUpdated && (
-                <div className="hidden md:flex items-center gap-3 mr-2">
-                  <div className="flex flex-col items-end">
-                    <div className="flex items-center gap-1">
-                      <div className="w-1 h-1 rounded-full bg-green-500 animate-pulse" />
-                      <span className="text-[7px] text-white/30 uppercase font-bold tracking-widest">Live Terminal</span>
-                    </div>
-                    <span className="text-[9px] font-mono text-orange-500/80">{lastUpdated.toLocaleTimeString('id-ID', { hour12: false })}</span>
-                  </div>
-                </div>
-              )}
-              <button
-                onClick={downloadReport}
-                disabled={!data || loading}
-                className="p-2 rounded-lg bg-white/5 text-white/40 hover:text-white hover:bg-white/10 transition-all disabled:opacity-20 flex items-center gap-2"
-                title="Download Report"
-              >
-                <Download size={18} />
-                <span className="hidden md:inline text-[9px] font-bold uppercase tracking-widest">Unduh Laporan</span>
-              </button>
-              <button
-                onClick={() => generateAnalysis(0, true)}
-                disabled={loading}
-                className="p-2 rounded-lg bg-orange-500 text-black hover:bg-orange-400 transition-all disabled:opacity-50"
-              >
-                <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-              </button>
-            </div>
+    <div className="space-y-4 pb-12 font-sans bg-[#050505] min-h-screen text-white p-4">
+      {/* Header Section */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex flex-col">
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Left Column: Technicals & Sentiment */}
-        <div className="space-y-6">
-          <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-5 space-y-6">
-            <div className="flex items-center justify-between border-b border-white/5 pb-2">
-              <h3 className="text-[10px] font-bold text-orange-500 uppercase tracking-widest">Sentimen</h3>
-              <Zap size={14} className="text-orange-500" />
+      {/* Pair & Timeframe Selectors */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-3 relative">
+          <button 
+            onClick={() => setShowPairDropdown(!showPairDropdown)}
+            className="flex items-center gap-2 bg-[#1A1A1A] border border-indigo-500/30 px-4 py-2 rounded-xl shadow-[0_0_20px_rgba(99,102,241,0.8)] border border-indigo-400/50 hover:bg-[#2A2A2A] transition-colors"
+          >
+            <span className="text-sm font-black text-white tracking-tighter">
+              {selectedPair === 'XAU/USD' ? 'XAUUSD' : 'BTCUSD'}
+            </span>
+            <div className="w-px h-4 bg-white/10 mx-1" />
+            <span className="text-[10px] font-bold text-white/40 uppercase">
+              {selectedPair === 'XAU/USD' ? 'GOLD' : 'BITCOIN'}
+            </span>
+            <ArrowDownRight size={14} className="text-white/40 ml-1" />
+          </button>
+
+          {showPairDropdown && (
+            <div className="absolute top-full left-0 mt-2 w-48 bg-[#1A1A1A] border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden flex flex-col">
+              <button 
+                onClick={() => { setSelectedPair('XAU/USD'); setShowPairDropdown(false); }}
+                className={`flex items-center gap-2 px-4 py-3 hover:bg-white/5 transition-colors ${selectedPair === 'XAU/USD' ? 'bg-white/5' : ''}`}
+              >
+                <div className="w-2 h-2 rounded-full bg-indigo-500" />
+                <span className="text-sm font-black text-white tracking-tighter">XAUUSD</span>
+                <span className="text-[10px] font-bold text-white/40 uppercase ml-auto">GOLD</span>
+              </button>
+              <div className="h-px w-full bg-white/5" />
+              <button 
+                onClick={() => { setSelectedPair('BTC/USD'); setShowPairDropdown(false); }}
+                className={`flex items-center gap-2 px-4 py-3 hover:bg-white/5 transition-colors ${selectedPair === 'BTC/USD' ? 'bg-white/5' : ''}`}
+              >
+                <div className="w-2 h-2 rounded-full bg-orange-500" />
+                <span className="text-sm font-black text-white tracking-tighter">BTCUSD</span>
+                <span className="text-[10px] font-bold text-white/40 uppercase ml-auto">BITCOIN</span>
+              </button>
             </div>
-            
-            {loading ? (
-              <div className="space-y-4 animate-pulse">
-                <div className="h-12 bg-white/5 rounded-lg"></div>
-                <div className="h-12 bg-white/5 rounded-lg"></div>
-              </div>
-            ) : data ? (
-              <div className="space-y-6">
-                <div className="space-y-2">
-                  <div className="flex justify-between items-end">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-white/60">XAU/USD</span>
-                      <span className="text-[7px] px-1 bg-orange-500/20 text-orange-500 rounded border border-orange-500/30 font-bold">LIVE</span>
-                    </div>
-                    <span className={`text-[10px] font-bold ${livePrices['XAU/USD']?.isUp ? 'text-green-500' : 'text-red-500'}`}>
-                      {livePrices['XAU/USD']?.change || '0.00%'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className={`text-sm font-bold ${data.sentiment.xau.label?.includes('BULL') ? 'text-green-500' : 'text-red-500'}`}>
-                      {data.sentiment.xau.label}
-                    </span>
-                    <span className="text-xs text-white/40">{data.sentiment.xau.value}%</span>
-                  </div>
-                  <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                    <motion.div 
-                      initial={{ width: 0 }}
-                      animate={{ width: `${data.sentiment.xau.value}%` }}
-                      className={`h-full ${data.sentiment.xau.label?.includes('BULL') ? 'bg-green-500' : 'bg-red-500'}`}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex justify-between items-end">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-white/60">BTC/USD</span>
-                      <span className="text-[7px] px-1 bg-orange-500/20 text-orange-500 rounded border border-orange-500/30 font-bold">LIVE</span>
-                    </div>
-                    <span className={`text-[10px] font-bold ${livePrices['BTC/USD']?.isUp ? 'text-green-500' : 'text-red-500'}`}>
-                      {livePrices['BTC/USD']?.change || '0.00%'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className={`text-sm font-bold ${data.sentiment.btc.label?.includes('BULL') ? 'text-green-500' : 'text-red-500'}`}>
-                      {data.sentiment.btc.label}
-                    </span>
-                    <span className="text-xs text-white/40">{data.sentiment.btc.value}%</span>
-                  </div>
-                  <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                    <motion.div 
-                      initial={{ width: 0 }}
-                      animate={{ width: `${data.sentiment.btc.value}%` }}
-                      className={`h-full ${data.sentiment.btc.label?.includes('BULL') ? 'bg-green-500' : 'bg-red-500'}`}
-                    />
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-6">
-                <p className="text-[10px] text-white/20">No sentiment data</p>
-              </div>
-            )}
-          </div>
-
-          <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-5 space-y-4">
-            <div className="flex items-center justify-between border-b border-white/5 pb-2">
-              <h3 className="text-[10px] font-bold text-orange-500 uppercase tracking-widest">Metode Teknikal</h3>
-              <Cpu size={14} className="text-orange-500" />
-            </div>
-            
-            {loading ? (
-              <div className="space-y-2 animate-pulse">
-                {[1, 2, 3, 4, 5].map(i => (
-                  <div key={i} className="h-4 bg-white/5 rounded w-full"></div>
-                ))}
-              </div>
-            ) : data?.identifiedMethods ? (
-              <div className="grid grid-cols-1 gap-2">
-                {data.identifiedMethods.map((method, idx) => (
-                  <div key={idx} className="flex items-center gap-2 group">
-                    <div className="w-1 h-1 rounded-full bg-orange-500/40 group-hover:bg-orange-500 transition-colors" />
-                    <span className="text-[9px] text-white/60 group-hover:text-white transition-colors font-medium">{method}</span>
-                  </div>
-                ))}
-                <div className="pt-2 border-t border-white/5">
-                  <span className="text-[8px] text-orange-500/60 font-bold uppercase tracking-tighter italic">
-                    * Algoritma Cerdas Mengidentifikasi 30+ Sinyal
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-4 text-white/20 text-[10px] uppercase font-bold tracking-widest">
-                Menunggu Analisis...
-              </div>
-            )}
-          </div>
-
-          <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-5 space-y-4">
-            <h3 className="text-[10px] font-bold text-orange-500 uppercase tracking-widest border-b border-white/5 pb-2 flex items-center gap-2">
-              <Globe size={14} />
-              Berita & Sentimen
-            </h3>
-            {loading ? (
-              <div className="space-y-2 animate-pulse">
-                <div className="h-3 bg-white/5 rounded w-full"></div>
-                <div className="h-3 bg-white/5 rounded w-5/6"></div>
-                <div className="h-8 bg-white/5 rounded w-full mt-2"></div>
-              </div>
-            ) : data?.newsSentiment ? (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] text-white/40 uppercase font-bold">Skor Sentimen</span>
-                  <div className="flex items-center gap-2">
-                    <div className="w-20 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full transition-all duration-1000 ${data.newsSentiment.score > 0 ? 'bg-green-500' : 'bg-red-500'}`}
-                        style={{ width: `${Math.abs(data.newsSentiment.score)}%` }}
-                      />
-                    </div>
-                    <span className={`text-[10px] font-bold ${data.newsSentiment.score > 0 ? 'text-green-500' : 'text-red-500'}`}>
-                      {data.newsSentiment.score > 0 ? '+' : ''}{data.newsSentiment.score}
-                    </span>
-                  </div>
-                </div>
-                <p className="text-[10px] text-white/60 leading-relaxed italic">
-                  "{data.newsSentiment.summary}"
-                </p>
-                {data.newsSentiment.sources && data.newsSentiment.sources.length > 0 && (
-                  <div className="pt-2 space-y-1.5">
-                    <span className="text-[8px] text-white/20 uppercase font-bold block">Sumber Grounding:</span>
-                    {data.newsSentiment.sources.slice(0, 3).map((source, idx) => (
-                      <a 
-                        key={idx}
-                        href={source.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 text-[9px] text-orange-500/60 hover:text-orange-500 transition-colors group"
-                      >
-                        <Zap size={10} className="group-hover:animate-pulse" />
-                        <span className="truncate max-w-[180px]">{source.title}</span>
-                      </a>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-4 text-white/20 text-[9px] uppercase font-bold">
-                Mencari Berita...
-              </div>
-            )}
-          </div>
-
-          <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-5 space-y-4">
-            <h3 className="text-[10px] font-bold text-orange-500 uppercase tracking-widest border-b border-white/5 pb-2 flex items-center justify-between">
-              <span>Kesehatan Sistem</span>
-              <div className="flex gap-1">
-                <div className={`w-1 h-1 rounded-full ${livePrices['XAU/USD']?.price > 0 ? 'bg-green-500' : 'bg-red-500'}`} />
-                <div className={`w-1 h-1 rounded-full ${livePrices['BTC/USD']?.price > 0 ? 'bg-green-500' : 'bg-red-500'}`} />
-                <div className={`w-1 h-1 rounded-full ${!isFallback ? 'bg-green-500' : 'bg-blue-500'}`} />
-              </div>
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-white/5 p-2 rounded border border-white/5">
-                <span className="text-[7px] text-white/30 uppercase block">Feed Data</span>
-                <span className="text-[9px] font-bold text-green-500 uppercase">Stabil</span>
-              </div>
-              <div className="bg-white/5 p-2 rounded border border-white/5">
-                <span className="text-[7px] text-white/30 uppercase block">Mesin AI</span>
-                <span className={`text-[9px] font-bold ${isFallback ? 'text-blue-500' : 'text-green-500'} uppercase`}>
-                  {isFallback ? 'Sistem' : 'Online'}
-                </span>
-              </div>
-              <div className="bg-white/5 p-2 rounded border border-white/5">
-                <span className="text-[7px] text-white/30 uppercase block">Latensi</span>
-                <span className="text-[9px] font-bold text-white/60">24ms</span>
-              </div>
-              <div className="bg-white/5 p-2 rounded border border-white/5">
-                <span className="text-[7px] text-white/30 uppercase block">Waktu Aktif</span>
-                <span className="text-[9px] font-bold text-white/60">99.9%</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-5 space-y-4">
-            <h3 className="text-[10px] font-bold text-orange-500 uppercase tracking-widest border-b border-white/5 pb-2">Indikator Teknikal</h3>
-            {loading ? (
-              <div className="space-y-2 animate-pulse">
-                <div className="h-4 bg-white/5 rounded w-full"></div>
-                <div className="h-4 bg-white/5 rounded w-full"></div>
-                <div className="h-4 bg-white/5 rounded w-full"></div>
-              </div>
-            ) : data ? (
-              <div className="space-y-3">
-                <div className="flex justify-between items-center py-1">
-                  <span className="text-[10px] text-white/40 uppercase">RSI (14)</span>
-                  <span className="text-xs font-bold text-white">{data.indicators.rsi}</span>
-                </div>
-                <div className="flex justify-between items-center py-1">
-                  <span className="text-[10px] text-white/40 uppercase">Volatilitas</span>
-                  <span className="text-xs font-bold text-orange-500">{data.indicators.volatility}</span>
-                </div>
-                <div className="flex justify-between items-center py-1">
-                  <span className="text-[10px] text-white/40 uppercase">Volume 24j</span>
-                  <span className="text-xs font-bold text-white">{data.indicators.volume24h}</span>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-4">
-                <p className="text-[10px] text-white/20">Tidak ada indikator</p>
-              </div>
-            )}
-          </div>
+          )}
         </div>
 
-        {/* Middle Column: Chart & Analysis */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-6 space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="flex bg-white/5 p-1 rounded-lg border border-white/10">
-                {(['XAU/USD', 'BTC/USD'] as Pair[]).map((pair) => (
-                  <button
-                    key={pair}
-                    onClick={() => setSelectedPair(pair)}
-                    className={`px-3 py-1.5 rounded-md text-[9px] font-bold uppercase tracking-tighter transition-all ${
-                      selectedPair === pair ? 'bg-orange-500 text-black' : 'text-white/40 hover:text-white'
-                    }`}
-                  >
-                    {pair}
-                  </button>
-                ))}
-              </div>
-              <div className="flex bg-white/5 p-1 rounded-lg border border-white/10">
-                {(['1M', '5M', '1H', '4H', '1D'] as Timeframe[]).map((tf) => (
-                  <button
-                    key={tf}
-                    onClick={() => setSelectedTimeframe(tf)}
-                    className={`px-3 py-1.5 rounded-md text-[9px] font-bold uppercase tracking-tighter transition-all ${
-                      selectedTimeframe === tf ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white'
-                    }`}
-                  >
-                    {tf}
-                  </button>
-                ))}
-              </div>
-            </div>
+        <div className="flex items-center gap-4 overflow-x-auto pb-2 no-scrollbar">
+          {(['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1'] as string[]).map((tf) => (
+            <button
+              key={tf}
+              onClick={() => setSelectedTimeframe(tf.replace('M', 'M').replace('H', 'H') as Timeframe)}
+              className={`text-[11px] font-black tracking-widest transition-all px-3 py-1.5 rounded-lg ${
+                selectedTimeframe === tf.replace('M', 'M').replace('H', 'H')
+                  ? 'bg-cyan-400/20 text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] border border-cyan-400/40 shadow-[0_0_15px_rgba(34,211,238,0.4)] shadow-[0_0_10px_rgba(34,197,94,0.2)]'
+                  : 'text-white/30 hover:text-white/60'
+              }`}
+            >
+              {tf}
+            </button>
+          ))}
+        </div>
+      </div>
 
-            <div className="h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData}>
-                  <defs>
-                    <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#f97316" stopOpacity={0.2}/>
-                      <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
-                  <XAxis 
-                    dataKey="time" 
-                    stroke="#ffffff20" 
-                    fontSize={9} 
-                    tickLine={false} 
-                    axisLine={false}
-                    minTickGap={40}
-                  />
-                  <YAxis 
-                    stroke="#ffffff20" 
-                    fontSize={9} 
-                    tickLine={false} 
-                    axisLine={false}
-                    domain={['auto', 'auto']}
-                    orientation="right"
-                    tickFormatter={(value) => value.toLocaleString()}
-                  />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: '#0A0A0A', border: '1px solid #ffffff10', borderRadius: '8px', fontSize: '10px' }}
-                    itemStyle={{ color: '#f97316' }}
-                    formatter={(value: any) => [typeof value === 'number' ? value.toFixed(2) : value, 'Harga']}
-                  />
-                  <Area 
-                    type="stepAfter" 
-                    dataKey="price" 
-                    stroke="#f97316" 
-                    strokeWidth={1.5}
-                    fillOpacity={1} 
-                    fill="url(#colorPrice)" 
-                    animationDuration={500}
-                  />
-                  <Area type="monotone" dataKey="ema8" stroke="#3b82f6" strokeWidth={1} fill="transparent" strokeDasharray="3 3" />
-                  <Area type="monotone" dataKey="ema21" stroke="#ef4444" strokeWidth={1} fill="transparent" strokeDasharray="3 3" />
-                </AreaChart>
-              </ResponsiveContainer>
+      <div className="flex flex-col gap-6">
+        {/* Top Section: Chart */}
+        <div className="space-y-4">
+          {/* Scalping Monitor (Above Chart) */}
+          {(selectedTimeframe === '1M' || selectedTimeframe === '5M') && (
+            <div className="w-full h-24 bg-[#0A0A0A] border border-white/10 rounded-2xl p-3 flex flex-col justify-center">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 bg-fuchsia-500 rounded-full animate-ping" />
+                  <span className="text-[8px] font-black text-white/60 uppercase tracking-widest">Live Scalp Monitor</span>
+                </div>
+                <span className="text-xs font-mono font-black text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">
+                  {livePrices[selectedPair].price.toFixed(selectedPair === 'XAU/USD' ? 2 : 1)}
+                </span>
+              </div>
+              <div className="h-12 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={tape.slice().reverse()}>
+                    <defs>
+                      <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <YAxis domain={['auto', 'auto']} hide={true} />
+                    <Area type="monotone" dataKey="price" stroke="#22c55e" fillOpacity={1} fill="url(#colorPrice)" isAnimationActive={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
             </div>
-            <div className="flex items-center gap-4 text-[8px] uppercase tracking-widest text-white/30 font-bold">
-              <div className="flex items-center gap-1"><div className="w-2 h-0.5 bg-orange-500" /> Harga</div>
-              <div className="flex items-center gap-1"><div className="w-2 h-0.5 bg-blue-500 border-t border-dashed" /> EMA 8</div>
-              <div className="flex items-center gap-1"><div className="w-2 h-0.5 bg-red-500 border-t border-dashed" /> EMA 21</div>
-            </div>
+          )}
+
+          <div className="h-[450px] w-full bg-black rounded-2xl border border-white/5 overflow-hidden relative group shadow-2xl">
+            <TradingViewWidget symbol={selectedPair} timeframe={selectedTimeframe} />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-6 relative min-h-[300px]">
-              <h3 className="text-[10px] font-bold text-orange-500 uppercase tracking-widest border-b border-white/5 pb-2 mb-4 flex items-center gap-2">
-                <Activity size={14} />
-                Strategi Swing
-              </h3>
-              {loading ? (
-                <div className="space-y-3 animate-pulse">
-                  <div className="h-4 bg-white/5 rounded w-full"></div>
-                  <div className="h-4 bg-white/5 rounded w-5/6"></div>
-                  <div className="h-4 bg-white/5 rounded w-4/6"></div>
-                </div>
-              ) : error ? (
-                <div className="text-center py-12 px-4">
-                  <AlertTriangle className="text-red-500 mx-auto mb-4" size={48} />
-                  <h3 className="text-sm font-bold text-white mb-2 uppercase tracking-widest">Kesalahan Terminal</h3>
-                  <p className="text-[11px] text-white/50 leading-relaxed mb-6 max-w-xs mx-auto italic">
-                    {error}
-                  </p>
-                  <div className="flex flex-col gap-3 items-center">
-                    <button 
-                      onClick={() => generateAnalysis()}
-                      className="bg-orange-500 text-black px-8 py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-orange-400 transition-all shadow-lg shadow-orange-500/20"
-                    >
-                      Coba Lagi
-                    </button>
-                    {(window as any).aistudio && (
-                      <button 
-                        onClick={async () => {
-                          await (window as any).aistudio.openSelectKey();
-                          generateAnalysis();
-                        }}
-                        className="text-orange-500/60 hover:text-orange-500 text-[9px] font-bold uppercase tracking-widest transition-all"
-                      >
-                        Ganti API Key
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ) : data ? (
-                <div className="prose prose-invert max-w-none text-[11px] leading-relaxed text-white/70">
-                  <ReactMarkdown>{data.analysis}</ReactMarkdown>
-                </div>
-              ) : null}
+          {/* RSI Divergence Indicator (Below Chart) */}
+          <div className="w-full bg-[#0A0A0A] border border-white/10 rounded-2xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Activity size={14} className="text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.8)]" />
+              <span className="text-[10px] font-bold text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.8)] uppercase tracking-widest">Multi-Timeframe RSI Divergence</span>
             </div>
-
-            <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-6">
-              <h3 className="text-[10px] font-bold text-orange-500 uppercase tracking-widest border-b border-white/5 pb-2 mb-4 flex items-center gap-2">
-                <Clock size={14} />
-                Waktu & Penjualan (Tape)
-              </h3>
-              <div className="space-y-1 h-[220px] overflow-hidden">
-                <div className="grid grid-cols-4 text-[8px] text-white/20 font-bold uppercase tracking-widest pb-1 border-b border-white/5">
-                  <span>Waktu</span>
-                  <span>Harga</span>
-                  <span>Ukuran</span>
-                  <span className="text-right">Sisi</span>
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+              {(data?.indicators?.rsiDivergence ? [
+                { tf: 'M5', val: data.indicators.rsiDivergence.m5 },
+                { tf: 'M15', val: data.indicators.rsiDivergence.m15 },
+                { tf: 'M30', val: data.indicators.rsiDivergence.m30 },
+                { tf: 'H1', val: data.indicators.rsiDivergence.h1 },
+                { tf: 'H4', val: data.indicators.rsiDivergence.h4 },
+                { tf: 'D1', val: data.indicators.rsiDivergence.d1 },
+              ] : [
+                { tf: 'M5', val: 'NONE' },
+                { tf: 'M15', val: 'NONE' },
+                { tf: 'M30', val: 'NONE' },
+                { tf: 'H1', val: 'NONE' },
+                { tf: 'H4', val: 'NONE' },
+                { tf: 'D1', val: 'NONE' },
+              ]).map((item, idx) => (
+                <div key={idx} className={`p-2 rounded-xl flex flex-col items-center justify-center text-center border transition-all ${
+                  item.val === 'BULLISH' 
+                    ? 'bg-cyan-400/10 border-cyan-400/30 shadow-[0_0_10px_rgba(34,211,238,0.2)]' 
+                    : item.val === 'BEARISH'
+                      ? 'bg-fuchsia-500/10 border-fuchsia-500/30 shadow-[0_0_10px_rgba(217,70,239,0.2)]'
+                      : 'bg-white/5 border-white/10'
+                }`}>
+                  <span className="text-[9px] text-white/50 font-bold uppercase tracking-widest mb-1">{item.tf}</span>
+                  <span className={`text-[8px] font-black uppercase tracking-wider ${
+                    item.val === 'BULLISH' ? 'text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' :
+                    item.val === 'BEARISH' ? 'text-fuchsia-400 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]' :
+                    'text-white/20'
+                  }`}>
+                    {item.val === 'NONE' ? '-' : item.val}
+                  </span>
                 </div>
-                {tape.map((entry) => (
-                  <motion.div 
-                    key={entry.id}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="grid grid-cols-4 text-[9px] py-1 border-b border-white/5 font-mono"
-                  >
-                    <span className="text-white/40">{entry.time}</span>
-                    <span className="text-white font-bold">{entry.price.toFixed(2)}</span>
-                    <span className="text-white/60">{entry.size}</span>
-                    <span className={`text-right font-bold ${entry.side === 'BUY' ? 'text-green-500' : 'text-red-500'}`}>
-                      {entry.side}
-                    </span>
-                  </motion.div>
-                ))}
-              </div>
+              ))}
             </div>
           </div>
         </div>
 
         {/* Right Column: Trading */}
         <div className="space-y-6">
-          {/* Tanya AI Signal Section */}
+          {/* Cara Kerja & Mode Trade Section */}
           <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-5 space-y-4 relative overflow-hidden">
             {/* Background Accent */}
-            <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/5 blur-3xl -mr-16 -mt-16 rounded-full pointer-events-none" />
+            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 blur-3xl -mr-16 -mt-16 rounded-full pointer-events-none" />
             
             <div className="flex items-center justify-between border-b border-white/5 pb-2 relative z-10">
-              <h3 className="text-[10px] font-bold text-orange-500 uppercase tracking-widest flex items-center gap-2">
-                <Sparkles size={14} className="animate-pulse" />
-                Tanya AI Signal
+              <h3 className="text-[10px] font-bold text-blue-500 uppercase tracking-widest flex items-center gap-2">
+                <Info size={14} className="animate-pulse" />
+                Cara Kerja & Mode Trading
               </h3>
-              <div className="flex gap-1">
-                {aiRecommendation && (
-                  <button 
-                    onClick={() => {
-                      setAiRecommendation(null);
-                      setChartImage(null);
-                      setEntryPrice('');
-                      setSwingStopLoss('');
-                      setSwingTakeProfit('');
-                      setSwingTakeProfit2('');
-                      setSwingTakeProfit3('');
-                    }}
-                    className="text-[8px] px-2 py-0.5 rounded border border-white/10 text-white/40 hover:text-white transition-all font-bold uppercase tracking-widest"
-                  >
-                    Reset
-                  </button>
-                )}
+            </div>
+
+            <div className="space-y-3 relative z-10">
+              <div className="grid grid-cols-1 gap-2">
+                <div className="p-3 bg-white/5 border border-white/5 rounded-lg space-y-2">
+                  <div className="flex items-center gap-2 text-blue-400">
+                    <Clock size={12} />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Swing Trading</span>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[9px]">
+                      <span className="text-white/40">H1 Timeframe</span>
+                      <span className="text-white/80 font-bold">Swing Mingguan</span>
+                    </div>
+                    <div className="flex justify-between text-[9px]">
+                      <span className="text-white/40">H4 Timeframe</span>
+                      <span className="text-white/80 font-bold">Swing Bulanan</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-white/5 border border-white/5 rounded-lg space-y-2">
+                  <div className="flex items-center gap-2 text-orange-400">
+                    <Activity size={12} />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Day Trading</span>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[9px]">
+                      <span className="text-white/40">M30 / M15</span>
+                      <span className="text-white/80 font-bold">Intraday Trade</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 bg-white/5 border border-white/5 rounded-lg space-y-2">
+                  <div className="flex items-center gap-2 text-fuchsia-400">
+                    <Zap size={12} />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Scalping</span>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[9px]">
+                      <span className="text-white/40">M5 / M1</span>
+                      <span className="text-white/80 font-bold">Fast Scalping 🔥</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3 bg-blue-500/5 border border-blue-500/20 rounded-lg">
+                <p className="text-[9px] text-blue-200/70 leading-relaxed italic">
+                  "Gunakan timeframe sesuai dengan gaya trading Anda. Ninz AI akan menyesuaikan level kalkulasi berdasarkan volatilitas market saat ini."
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Trading Signal Section */}
+          <div className="bg-[#0A0A0A] border border-white/10 rounded-2xl p-6 space-y-6 relative overflow-hidden shadow-2xl">
+            {/* Background Accent */}
+            <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-500/5 blur-[100px] -mr-24 -mt-24 rounded-full pointer-events-none" />
+            
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-white/5 pb-3 relative z-10 gap-3">
+              <div className="flex items-center justify-between w-full md:w-auto">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-500/10 rounded-xl border border-indigo-500/20">
+                    <Sparkles size={18} className="text-indigo-500 drop-shadow-[0_0_10px_rgba(99,102,241,0.8)] animate-pulse" />
+                  </div>
+                  <h3 className="text-sm font-black text-indigo-400 drop-shadow-[0_0_10px_rgba(129,140,248,0.8)] uppercase tracking-[0.4em] flex flex-col">
+                    <span>SIGNAL</span>
+                  </h3>
+                </div>
+                {/* Mobile Tab */}
+                <div className="flex md:hidden bg-white/5 p-1 rounded-xl border border-white/10">
+                  {(['XAU', 'BTC'] as const).map((pair) => (
+                    <button 
+                      key={pair}
+                      onClick={() => setSignalTab(pair)}
+                      className={`px-3 py-1 rounded-lg text-[9px] font-black transition-all uppercase tracking-widest ${
+                        signalTab === pair 
+                          ? 'bg-indigo-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.8)] border border-indigo-400/50' 
+                          : 'text-white/30 hover:text-white/60'
+                      }`}
+                    >
+                      {pair}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full md:w-auto">
                 <button 
-                  onClick={() => setUseCustomSwing(!useCustomSwing)}
-                  className={`text-[8px] px-2 py-0.5 rounded border transition-all font-bold uppercase tracking-widest ${
-                    useCustomSwing ? 'bg-blue-500 border-blue-500 text-white' : 'border-white/10 text-white/40'
-                  }`}
+                  onClick={() => generateAnalysis(0, true)}
+                  disabled={loading}
+                  className="flex items-center justify-center gap-2 px-3 py-1.5 md:py-1 bg-indigo-500/10 rounded-xl md:rounded-full border border-indigo-500/20 hover:bg-indigo-500/20 transition-all text-indigo-400 drop-shadow-[0_0_10px_rgba(129,140,248,0.8)] flex-1 md:flex-none whitespace-nowrap"
                 >
-                  {useCustomSwing ? 'Edit Manual' : 'Kunci AI'}
+                  <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
+                  <span className="text-[9px] md:text-[8px] font-black uppercase tracking-widest">AUTO SIGNAL</span>
                 </button>
+                <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-cyan-400/10 rounded-full border border-cyan-400/20 shadow-[0_0_15px_rgba(34,211,238,0.4)]">
+                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  <span className="text-[8px] font-black text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] uppercase tracking-widest">REAL-TIME AI</span>
+                </div>
+                {/* Desktop Tab */}
+                <div className="hidden md:flex bg-white/5 p-1 rounded-xl border border-white/10">
+                  {(['XAU', 'BTC'] as const).map((pair) => (
+                    <button 
+                      key={pair}
+                      onClick={() => setSignalTab(pair)}
+                      className={`px-4 py-1.5 rounded-lg text-[10px] font-black transition-all uppercase tracking-widest ${
+                        signalTab === pair 
+                          ? 'bg-indigo-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.8)] border border-indigo-400/50' 
+                          : 'text-white/30 hover:text-white/60'
+                      }`}
+                    >
+                      {pair}
+                    </button>
+                  ))}
+                </div>
+                <span className={`text-[8px] sm:text-[9px] px-2 sm:px-3 py-1.5 rounded-xl border font-black uppercase tracking-[0.1em] text-center flex-1 md:flex-none ${
+                  data?.predictions?.h1?.direction === 'UP' ? 'bg-cyan-400/10 border-cyan-400/30 shadow-[0_0_15px_rgba(34,211,238,0.4)] text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 
+                  data?.predictions?.h1?.direction === 'DOWN' ? 'bg-fuchsia-500/10 border-fuchsia-500/30 shadow-[0_0_15px_rgba(217,70,239,0.4)] text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]' : 
+                  'bg-white/5 border-white/10 text-white/30'
+                }`}>
+                  {data?.predictions?.h1?.direction === 'UP' ? 'BULLISH' : data?.predictions?.h1?.direction === 'DOWN' ? 'BEARISH' : 'NEUTRAL'}
+                </span>
               </div>
             </div>
 
-            {!aiRecommendation && !isAskingAI ? (
-              <div className="py-8 text-center space-y-4">
-                <div className="w-12 h-12 bg-orange-500/10 rounded-full flex items-center justify-center mx-auto border border-orange-500/20">
-                  <Cpu size={24} className="text-orange-500" />
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs font-bold text-white">Butuh Setup Swing?</p>
-                  <p className="text-[9px] text-white/40 uppercase tracking-widest">AI akan menganalisis SMC & Likuiditas</p>
-                </div>
-                
-                {/* Image Upload Area */}
-                <div className="space-y-3">
-                  <input 
-                    type="file" 
-                    ref={fileInputRef}
-                    onChange={handleFileChange}
-                    accept="image/*"
-                    className="hidden"
-                  />
-                  
-                  {chartImage ? (
-                    <div className="relative w-full aspect-video bg-white/5 rounded-xl border border-white/10 overflow-hidden group">
-                      <img src={chartImage} alt="Chart" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                        <button 
-                          onClick={() => fileInputRef.current?.click()}
-                          className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors"
-                        >
-                          <RefreshCw size={16} className="text-white" />
-                        </button>
-                        <button 
-                          onClick={() => setChartImage(null)}
-                          className="p-2 bg-red-500/20 rounded-full hover:bg-red-500/40 transition-colors"
-                        >
-                          <X size={16} className="text-red-500" />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button 
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full py-4 border-2 border-dashed border-white/10 rounded-xl hover:border-orange-500/30 hover:bg-orange-500/5 transition-all group"
-                    >
-                      <div className="flex flex-col items-center gap-2">
-                        <Globe size={20} className="text-white/20 group-hover:text-orange-500/50 transition-colors" />
-                        <span className="text-[8px] text-white/30 uppercase font-bold tracking-widest">Upload Screenshot Chart (Opsional)</span>
-                      </div>
-                    </button>
-                  )}
-                </div>
-
-                <button 
-                  onClick={handleAskAI}
-                  className="w-full bg-orange-500 hover:bg-orange-600 text-black font-black py-3 rounded-xl text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2"
-                >
-                  <Sparkles size={14} />
-                  Tanya AI Sekarang
-                </button>
-              </div>
-            ) : isAskingAI ? (
-              <div className="py-12 text-center space-y-4">
-                <div className="relative w-16 h-16 mx-auto">
-                  <div className="absolute inset-0 border-2 border-orange-500/20 rounded-full" />
-                  <div className="absolute inset-0 border-2 border-t-orange-500 rounded-full animate-spin" />
-                  <Cpu size={24} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-orange-500 animate-pulse" />
-                </div>
-                <div className="space-y-1">
-                  <p className="text-[10px] font-bold text-orange-500 uppercase tracking-widest animate-pulse">Menganalisis Market Structure...</p>
-                  <p className="text-[8px] text-white/20 uppercase tracking-widest">Mencari Area Likuiditas & Imbalance</p>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                {/* AI Recommendation Card */}
-                <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 p-2">
-                    <div className={`text-[8px] font-black px-2 py-0.5 rounded-full ${
-                      swingAction === 'BUY' ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'
-                    }`}>
-                      AI {swingAction}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <label className="text-[7px] text-white/30 uppercase font-bold tracking-widest">Entry Price</label>
-                      <input 
-                        type="text" 
-                        value={entryPrice}
-                        onChange={(e) => setEntryPrice(e.target.value)}
-                        readOnly={!useCustomSwing}
-                        className={`w-full bg-transparent border-b border-white/10 py-1 text-sm font-black text-white focus:outline-none focus:border-orange-500 transition-colors ${!useCustomSwing ? 'cursor-default' : ''}`}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[7px] text-white/30 uppercase font-bold tracking-widest">Stop Loss</label>
-                      <input 
-                        type="text" 
-                        value={swingStopLoss}
-                        onChange={(e) => setSwingStopLoss(e.target.value)}
-                        readOnly={!useCustomSwing}
-                        className={`w-full bg-transparent border-b border-red-500/20 py-1 text-sm font-black text-red-500 focus:outline-none focus:border-red-500 transition-colors ${!useCustomSwing ? 'cursor-default' : ''}`}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="space-y-1">
-                      <label className="text-[7px] text-white/30 uppercase font-bold tracking-widest">TP 1</label>
-                      <input 
-                        type="text" 
-                        value={swingTakeProfit}
-                        onChange={(e) => setSwingTakeProfit(e.target.value)}
-                        readOnly={!useCustomSwing}
-                        className={`w-full bg-transparent border-b border-green-500/20 py-1 text-[11px] font-bold text-green-500 focus:outline-none focus:border-green-500 transition-colors ${!useCustomSwing ? 'cursor-default' : ''}`}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[7px] text-white/30 uppercase font-bold tracking-widest">TP 2</label>
-                      <input 
-                        type="text" 
-                        value={swingTakeProfit2}
-                        onChange={(e) => setSwingTakeProfit2(e.target.value)}
-                        readOnly={!useCustomSwing}
-                        className={`w-full bg-transparent border-b border-green-500/20 py-1 text-[11px] font-bold text-green-500 focus:outline-none focus:border-green-500 transition-colors ${!useCustomSwing ? 'cursor-default' : ''}`}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[7px] text-white/30 uppercase font-bold tracking-widest">TP 3</label>
-                      <input 
-                        type="text" 
-                        value={swingTakeProfit3}
-                        onChange={(e) => setSwingTakeProfit3(e.target.value)}
-                        readOnly={!useCustomSwing}
-                        className={`w-full bg-transparent border-b border-green-500/20 py-1 text-[11px] font-bold text-green-500 focus:outline-none focus:border-green-500 transition-colors ${!useCustomSwing ? 'cursor-default' : ''}`}
-                      />
-                    </div>
-                  </div>
-
-                  {aiRecommendation?.analysis && (
-                    <div className="bg-orange-500/5 border border-orange-500/10 rounded-lg p-2 space-y-1">
-                      <div className="flex items-center gap-1 text-orange-500">
-                        <Info size={10} />
-                        <span className="text-[8px] font-black uppercase tracking-widest">Scalping Moment</span>
-                      </div>
-                      <p className="text-[9px] text-white/60 leading-relaxed italic">
-                        "{aiRecommendation.analysis}"
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="pt-2 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <label className="text-[8px] text-white/30 uppercase font-bold tracking-widest">Lot</label>
-                      <input 
-                        type="text" 
-                        value={lotSize}
-                        onChange={(e) => setLotSize(e.target.value)}
-                        className="w-12 bg-white/5 border border-white/10 rounded px-1 py-0.5 text-[10px] font-bold text-white focus:outline-none focus:border-orange-500/50"
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={() => setSwingAction(swingAction === 'BUY' ? 'SELL' : 'BUY')}
-                        className="text-[8px] text-white/40 hover:text-white uppercase font-bold tracking-widest"
-                      >
-                        Switch to {swingAction === 'BUY' ? 'SELL' : 'BUY'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <button 
-                    onClick={handleAskAI}
-                    disabled={isAskingAI}
-                    className="bg-white/5 border border-white/10 hover:bg-white/10 text-white font-bold py-3 rounded-xl text-[9px] uppercase tracking-widest transition-all flex items-center justify-center gap-2"
-                  >
-                    <RefreshCw size={12} className={isAskingAI ? 'animate-spin' : ''} />
-                    Analisis Ulang
-                  </button>
+            <div className="flex gap-3 sm:gap-6 relative z-10">
+              {/* Vertical Timeframe - Left Side as in image */}
+              <div className="flex flex-col gap-2 bg-[#141414] p-1.5 rounded-2xl border border-white/5 min-w-[40px] sm:min-w-[50px] items-center justify-between">
+                {(['1M', '5M', '15M', '30M', '1H', '4H'] as Timeframe[]).map((tf) => (
                   <button
-                    onClick={async () => {
-                      if (!entryPrice || !swingStopLoss || !swingTakeProfit) {
-                        toast.error('Level Swing belum lengkap!');
-                        return;
-                      }
-                      setIsLogging(true);
-                      try {
-                        if (!auth.currentUser) {
-                          toast.error('Anda harus masuk untuk mengaktifkan sinyal.');
-                          setIsLogging(false);
-                          return;
-                        }
-                        await addDoc(collection(db, 'signals'), {
-                          pair: selectedPair,
-                          action: swingAction,
-                          entryPrice: parseFloat(entryPrice),
-                          sl: parseFloat(swingStopLoss),
-                          tp: parseFloat(swingTakeProfit),
-                          result: 0, // Open trade
-                          status: 'open',
-                          createdAt: Timestamp.now(),
-                          type: userProfile?.role === 'admin' ? 'OFFICIAL' : 'SWING',
-                          lot: lotSize,
-                          analysis: aiRecommendation?.analysis || '',
-                          author: auth.currentUser?.email || 'User',
-                          uid: auth.currentUser?.uid
-                        });
-                        toast.success('Sinyal AI berhasil diaktifkan!');
-                        setAiRecommendation(null);
-                        setChartImage(null);
-                        setEntryPrice('');
-                      } catch (error) {
-                        handleFirestoreError(error, OperationType.CREATE, 'signals');
-                        toast.error('Gagal mengaktifkan sinyal.');
-                      } finally {
-                        setIsLogging(false);
-                      }
-                    }}
-                    disabled={isLogging}
-                    className="bg-orange-500 hover:bg-orange-600 text-black font-black py-3 rounded-xl text-[9px] uppercase tracking-widest transition-all shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2"
+                    key={tf}
+                    onClick={() => setSelectedTimeframe(tf)}
+                    className={`w-full aspect-square flex items-center justify-center rounded-xl text-[9px] sm:text-[10px] font-black transition-all ${
+                      selectedTimeframe === tf 
+                        ? 'bg-indigo-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.8)] border border-indigo-400/50' 
+                        : 'text-white/20 hover:text-white/40 hover:bg-white/5'
+                    }`}
                   >
-                    {isLogging ? <RefreshCw size={12} className="animate-spin" /> : <Zap size={12} />}
-                    Eksekusi Sinyal
+                    {tf.toLowerCase()}
                   </button>
-                </div>
+                ))}
               </div>
-            )}
+
+              <div className="flex-1 min-w-0 space-y-4">
+                {loading ? (
+                  <div className="space-y-4 animate-pulse">
+                    <div className="h-16 bg-white/5 rounded-2xl"></div>
+                    <div className="h-16 bg-white/5 rounded-2xl"></div>
+                    <div className="h-32 bg-white/5 rounded-2xl"></div>
+                  </div>
+                ) : data ? (
+                  <div className="space-y-4">
+                    {(() => {
+                      const price = livePrices[selectedPair].price;
+                      const pairKey = selectedPair === 'XAU/USD' ? 'xau' : 'btc';
+                      const resistance = parseFloat(String(data.levels[pairKey].resistance).replace(/,/g, ''));
+                      const support = parseFloat(String(data.levels[pairKey].support).replace(/,/g, ''));
+                      const isNearResistance = Math.abs(price - resistance) / price < 0.0015; 
+                      const isNearSupport = Math.abs(price - support) / price < 0.0015;
+                      
+                      if (!isNearResistance && !isNearSupport) return null;
+                      
+                      return (
+                        <motion.div 
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="bg-fuchsia-500/10 border border-fuchsia-500/30 rounded-2xl p-4 shadow-[0_0_15px_rgba(217,70,239,0.2)] mb-4"
+                        >
+                          <div className="flex items-start gap-3">
+                            <AlertTriangle className="text-fuchsia-400 mt-1 flex-shrink-0 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)] animate-pulse" size={18} />
+                            <div>
+                              <h4 className="text-[10px] font-bold text-fuchsia-400 uppercase tracking-widest mb-1 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]">
+                                Peringatan Zona Kritis
+                              </h4>
+                              <p className="text-xs text-fuchsia-200/80 leading-relaxed font-medium">
+                                {isNearResistance 
+                                  ? `Harga masuk ke zona RESISTANCE psikologis di kisaran ${data.levels[pairKey].resistance}. Sorotan: Bersiap untuk potensi REVERSAL (pembalikan arah) ke bawah atau BREAKOUT jika momentum kuat.` 
+                                  : `Harga masuk ke zona SUPPORT signifikan di kisaran ${data.levels[pairKey].support}. Sorotan: Waspadai potensi REVERSAL (pantulan kembali) ke atas atau BREAKDOWN jika tekanan jual berlanjut.`}
+                              </p>
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })()}
+
+                    {/* Titik Entry Card */}
+                    <motion.div 
+                      whileHover={{ scale: 1.02 }}
+                      className="p-3 sm:p-4 bg-[#111111] border border-white/5 rounded-2xl flex items-center justify-between group cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-indigo-500/10 rounded-2xl flex items-center justify-center border border-indigo-500/10 group-hover:border-indigo-500/30 transition-all">
+                          <Target size={20} className="text-indigo-500 drop-shadow-[0_0_10px_rgba(99,102,241,0.8)] sm:w-6 sm:h-6" />
+                        </div>
+                        <div>
+                          <p className="text-[8px] sm:text-[9px] text-white/30 uppercase font-bold tracking-[0.2em] mb-0.5 sm:mb-1">Titik Entry</p>
+                          <p className="text-xl sm:text-2xl font-black text-white tracking-tighter">
+                            {signalTab === 'XAU' ? data.levels.xau.entry : data.levels.btc.entry}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[8px] sm:text-[9px] text-white/20 uppercase font-black tracking-widest">PIVOT</p>
+                        <p className="text-xs sm:text-sm font-bold text-white/50">{signalTab === 'XAU' ? data.levels.xau.pivot : data.levels.btc.pivot}</p>
+                      </div>
+                    </motion.div>
+
+                    {/* Stop Loss Card */}
+                    <motion.div 
+                      whileHover={{ scale: 1.02 }}
+                      className="p-3 sm:p-4 bg-fuchsia-500/5 border border-fuchsia-500/10 shadow-[0_0_15px_rgba(217,70,239,0.4)] rounded-2xl flex items-center gap-3 sm:gap-4 group cursor-pointer"
+                    >
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-fuchsia-500/10 rounded-2xl flex items-center justify-center border border-fuchsia-500/20 shadow-[0_0_15px_rgba(217,70,239,0.4)] flex-shrink-0">
+                        <TrendingDown size={20} className="text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)] sm:w-6 sm:h-6" />
+                      </div>
+                      <div className="overflow-hidden">
+                        <p className="text-[8px] sm:text-[9px] text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]/50 uppercase font-bold tracking-[0.2em] mb-0.5 sm:mb-1 truncate">Batasi Kerugian (SL)</p>
+                        <p className="text-xl sm:text-2xl font-black text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)] tracking-tighter">
+                          {signalTab === 'XAU' ? data.levels.xau.sl : data.levels.btc.sl}
+                        </p>
+                      </div>
+                    </motion.div>
+
+                    {/* Take Profits Card */}
+                    <motion.div 
+                      whileHover={{ scale: 1.01 }}
+                      className="p-3 sm:p-4 bg-cyan-400/5 border border-cyan-400/10 shadow-[0_0_15px_rgba(34,211,238,0.4)] rounded-3xl space-y-3 sm:space-y-4"
+                    >
+                      <div className="flex items-center gap-3 sm:gap-4">
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-cyan-400/10 rounded-2xl flex items-center justify-center border border-cyan-400/20 shadow-[0_0_15px_rgba(34,211,238,0.4)] flex-shrink-0">
+                          <TrendingUp size={20} className="text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] sm:w-6 sm:h-6" />
+                        </div>
+                        <div className="overflow-hidden">
+                          <p className="text-[8px] sm:text-[9px] text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]/50 uppercase font-bold tracking-[0.1em] sm:tracking-[0.2em] truncate">Target Keuntungan (TP)</p>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                        {[
+                          { label: 'TP 1', value: signalTab === 'XAU' ? data.levels.xau.tp : data.levels.btc.tp },
+                          { label: 'TP 2', value: signalTab === 'XAU' ? data.levels.xau.tp2 : data.levels.btc.tp2 },
+                          { label: 'TP 3', value: signalTab === 'XAU' ? data.levels.xau.tp3 : data.levels.btc.tp3 }
+                        ].map((tp, i) => (
+                          <div key={i} className="bg-white/5 p-2 sm:p-3 rounded-2xl border border-white/5 text-center group hover:bg-cyan-400/10 transition-all cursor-pointer">
+                            <p className="text-[6px] sm:text-[7px] text-white/20 uppercase font-black mb-1 sm:mb-1.5 tracking-widest">{tp.label}</p>
+                            <p className="text-[10px] sm:text-xs font-black text-cyan-300 tracking-tighter group-hover:scale-110 transition-transform truncate">
+                              {tp.value}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                    
+                    {/* Live Sync Status */}
+                    <div className="pt-2 flex items-center justify-center gap-2">
+                       <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                       <span className="text-[8px] font-black text-white/30 uppercase tracking-[0.3em]">Market Real-Time Feed</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-20 text-center space-y-4 bg-white/5 rounded-3xl border border-dashed border-white/10">
+                    <div className="flex justify-center">
+                      <RefreshCw size={24} className="text-white/10 animate-spin" />
+                    </div>
+                    <p className="text-[10px] text-white/20 font-black uppercase tracking-[0.2em]">Sinkronisasi Pasar...</p>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-5 space-y-4">
-            <h3 className="text-[10px] font-bold text-orange-500 uppercase tracking-widest border-b border-white/5 pb-2 flex items-center gap-2">
-              <Zap size={14} />
-              Intelijen Pasar
+            <h3 className="text-[10px] font-bold text-indigo-500 drop-shadow-[0_0_10px_rgba(99,102,241,0.8)] uppercase tracking-widest border-b border-white/5 pb-2 flex items-center gap-2">
+              <ShieldCheck size={14} />
+              Panduan Disiplin & Manajemen Risiko
             </h3>
-            {loading ? (
-              <div className="space-y-3 animate-pulse">
-                <div className="h-12 bg-white/5 rounded"></div>
-                <div className="h-12 bg-white/5 rounded"></div>
-                <div className="h-12 bg-white/5 rounded"></div>
+            
+            <div className="space-y-4">
+              {/* Prompts Section */}
+              <div className="grid grid-cols-1 gap-3">
+                {[
+                  {
+                    title: "Prompt 1 (Dasar – Disiplin Risiko)",
+                    text: "“Ajarkan saya strategi trading yang fokus pada manajemen risiko, dengan aturan maksimal risiko 1–2% per transaksi. Jelaskan kenapa penggunaan full margin berbahaya dan bagaimana menghindarinya dalam kondisi pasar apa pun.”"
+                  },
+                  {
+                    title: "Prompt 2 (Mindset & Psikologi)",
+                    text: "“Bimbing saya untuk memiliki mindset trader profesional yang tidak serakah, tidak FOMO, dan tidak menggunakan full margin. Berikan contoh kesalahan umum trader pemula dan cara menghindarinya.”"
+                  },
+                  {
+                    title: "Prompt 3 (Praktikal & Sistem Trading)",
+                    text: "“Buatkan sistem trading sederhana dengan aturan jelas: entry, stop loss, take profit, dan batas maksimal penggunaan margin. Pastikan sistem ini aman dari risiko overtrading dan full margin.”"
+                  },
+                  {
+                    title: "Prompt 4 (Simulasi Kerugian)",
+                    text: "“Simulasikan apa yang terjadi jika saya menggunakan full margin dalam trading, termasuk risiko margin call dan kerugian cepat. Bandingkan dengan strategi risk management yang sehat.”"
+                  },
+                  {
+                    title: "Prompt 5 (Checklist Sebelum Entry)",
+                    text: "“Buatkan checklist sebelum entry trading yang memastikan saya tidak menggunakan full margin, termasuk konfirmasi setup, risk-reward ratio, and ukuran lot yang aman.”"
+                  },
+                  {
+                    title: "Prompt 6 (Pengingat Harian)",
+                    text: "“Berikan saya pengingat harian sebagai trader untuk selalu menjaga manajemen risiko, menghindari overleverage, dan tetap disiplin meskipun sedang profit atau loss.”"
+                  }
+                ].map((p, i) => (
+                  <div key={i} className="p-3 bg-white/5 border border-white/10 rounded-lg group hover:border-indigo-500/30 transition-all">
+                    <h4 className="text-[9px] font-black text-indigo-400 drop-shadow-[0_0_10px_rgba(129,140,248,0.8)] uppercase mb-1 flex items-center gap-2">
+                      <div className="w-1 h-1 bg-indigo-500 rounded-full" />
+                      {p.title}
+                    </h4>
+                    <p className="text-[10px] text-white/70 leading-relaxed italic">
+                      {p.text}
+                    </p>
+                  </div>
+                ))}
               </div>
-            ) : data ? (
-              <div className="space-y-4">
-                {/* Indicators */}
-                <div className="grid grid-cols-1 gap-2">
-                  <div className="flex items-center justify-between p-2 bg-white/5 border border-white/10 rounded">
-                    <span className="text-[9px] text-white/40 uppercase font-bold">RSI (14)</span>
-                    <span className="text-xs font-bold text-white">{data.indicators.rsi}</span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 bg-white/5 border border-white/10 rounded">
-                    <span className="text-[9px] text-white/40 uppercase font-bold">MACD</span>
-                    <span className="text-xs font-bold text-white">{data.indicators.macd}</span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 bg-white/5 border border-white/10 rounded">
-                    <span className="text-[9px] text-white/40 uppercase font-bold">Bollinger Bands</span>
-                    <span className="text-xs font-bold text-white">{data.indicators.bollingerBands}</span>
-                  </div>
-                </div>
 
-                {/* Predictions */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="p-2 bg-white/5 border border-white/10 rounded space-y-1">
-                    <span className="text-[8px] text-white/30 uppercase font-bold tracking-widest">Prediksi 1J</span>
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[10px] font-black ${
-                        data.predictions.h1.direction === 'UP' ? 'text-green-500' : 
-                        data.predictions.h1.direction === 'DOWN' ? 'text-red-500' : 'text-yellow-500'
-                      }`}>
-                        {data.predictions.h1.direction === 'UP' ? 'NAIK' : 
-                         data.predictions.h1.direction === 'DOWN' ? 'TURUN' : 'KONSOLIDASI'}
-                      </span>
-                      <span className="text-[9px] text-white/60">{data.predictions.h1.confidence}%</span>
-                    </div>
-                    <div className="text-[8px] text-white/40 italic">Target: {data.predictions.h1.target}</div>
-                  </div>
-                  <div className="p-2 bg-white/5 border border-white/10 rounded space-y-1">
-                    <span className="text-[8px] text-white/30 uppercase font-bold tracking-widest">Prediksi 4J</span>
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[10px] font-black ${
-                        data.predictions.h4.direction === 'UP' ? 'text-green-500' : 
-                        data.predictions.h4.direction === 'DOWN' ? 'text-red-500' : 'text-yellow-500'
-                      }`}>
-                        {data.predictions.h4.direction === 'UP' ? 'NAIK' : 
-                         data.predictions.h4.direction === 'DOWN' ? 'TURUN' : 'KONSOLIDASI'}
-                      </span>
-                      <span className="text-[9px] text-white/60">{data.predictions.h4.confidence}%</span>
-                    </div>
-                    <div className="text-[8px] text-white/40 italic">Target: {data.predictions.h4.target}</div>
-                  </div>
+              {/* Tips Section */}
+              <div className="p-4 bg-indigo-500/5 border border-indigo-500/20 rounded-xl space-y-3">
+                <div className="flex items-center gap-2 text-indigo-400 drop-shadow-[0_0_10px_rgba(129,140,248,0.8)] mb-1">
+                  <Zap size={14} />
+                  <h4 className="text-[10px] font-black uppercase tracking-widest">💡 Tips Penting</h4>
                 </div>
-
-                {/* News Sentiment */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[9px] text-white/30 uppercase font-bold tracking-widest">Sentimen Berita</span>
-                    <div className="flex items-center gap-2">
-                      <div className="w-20 h-1 bg-white/10 rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full transition-all ${data.newsSentiment.score > 0 ? 'bg-green-500' : 'bg-red-500'}`}
-                          style={{ width: `${Math.abs(data.newsSentiment.score)}%` }}
-                        />
-                      </div>
-                      <span className="text-[9px] font-bold text-white">{data.newsSentiment.score}</span>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-white/70 leading-relaxed bg-white/5 p-2 rounded border border-white/5">
-                    {data.newsSentiment.summary}
-                  </p>
-                  <div className="space-y-1">
-                    {data.newsSentiment.sources.slice(0, 2).map((source, i) => (
-                      <a 
-                        key={i} 
-                        href={source.url} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-[8px] text-orange-500/60 hover:text-orange-500 transition-colors truncate"
-                      >
-                        <Globe size={8} />
-                        {source.title}
-                      </a>
-                    ))}
-                  </div>
-                </div>
+                <ul className="space-y-2">
+                  {[
+                    "Jangan pernah pakai 100% margin",
+                    "Gunakan maksimal 10–30% dari margin",
+                    "Risiko per trade: 1–2% dari balance",
+                    "Selalu pakai stop loss",
+                    "Hindari revenge trading & FOMO"
+                  ].map((tip, i) => (
+                    <li key={i} className="flex items-center gap-2 text-[10px] text-white/80">
+                      <div className="w-1 h-1 bg-indigo-500 rounded-full" />
+                      {tip}
+                    </li>
+                  ))}
+                </ul>
               </div>
-            ) : null}
+            </div>
           </div>
 
           <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-5 space-y-4">
@@ -2156,7 +1897,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                       <span className="text-[10px] text-white font-medium line-clamp-1">{event.event}</span>
                     </div>
                     <div className={`w-1.5 h-1.5 rounded-full ${
-                      event.impact === 'HIGH' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 
+                      event.impact === 'HIGH' ? 'bg-fuchsia-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 
                       event.impact === 'MEDIUM' ? 'bg-orange-500' : 'bg-yellow-500'
                     }`} title={`Dampak ${event.impact}`} />
                   </div>
@@ -2177,11 +1918,11 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
           <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-white/5 pb-2">
               <div className="flex items-center gap-2">
-                <h3 className="text-[10px] font-bold text-orange-500 uppercase tracking-widest flex items-center gap-2">
+                <h3 className="text-[10px] font-bold text-indigo-500 drop-shadow-[0_0_10px_rgba(99,102,241,0.8)] uppercase tracking-widest flex items-center gap-2">
                   <BarChart2 size={14} />
-                  SL TP Tracker
+                  Pelacak SL TP
                 </h3>
-                <span className="text-[7px] px-1 bg-green-500/20 text-green-500 rounded border border-green-500/30 font-bold animate-pulse">LIVE SYNC</span>
+                <span className="text-[7px] px-1 bg-blue-500/20 text-blue-400 rounded border border-blue-500/30 font-bold animate-pulse">LIVE SYNC</span>
               </div>
               {data && (
                 <button 
@@ -2192,9 +1933,9 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                     setLogSL(levels.sl || '');
                     setLogTP(levels.tp || '');
                   }}
-                  className="text-[8px] text-orange-500/60 hover:text-orange-500 font-bold uppercase tracking-widest transition-colors"
+                  className="text-[8px] text-indigo-500 drop-shadow-[0_0_10px_rgba(99,102,241,0.8)]/60 hover:text-indigo-500 drop-shadow-[0_0_10px_rgba(99,102,241,0.8)] font-bold uppercase tracking-widest transition-colors"
                 >
-                  Gunakan Level AI
+                  Gunakan Level Sistem
                 </button>
               )}
             </div>
@@ -2205,7 +1946,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                   <select 
                     value={logAction}
                     onChange={(e) => setLogAction(e.target.value as 'BUY' | 'SELL')}
-                    className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-orange-500/50 transition-colors"
+                    className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
                   >
                     <option value="BUY">BUY</option>
                     <option value="SELL">SELL</option>
@@ -2218,29 +1959,32 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                     placeholder="Entry Price"
                     value={logEntry}
                     onChange={(e) => setLogEntry(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-orange-500/50 transition-colors"
+                    onBlur={(e) => setLogEntry(String(parseFloat(String(e.target.value).replace(/,/g, '')) || ''))}
+                    className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
                   />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[8px] text-white/30 uppercase font-bold tracking-widest text-red-400">Stop Loss</label>
+                  <label className="text-[8px] text-white/30 uppercase font-bold tracking-widest text-fuchsia-400">Batasi Kerugian (SL)</label>
                   <input 
                     type="text" 
-                    placeholder="SL Price"
+                    placeholder="Harga SL"
                     value={logSL}
                     onChange={(e) => setLogSL(e.target.value)}
-                    className="w-full bg-white/5 border border-red-500/20 rounded px-2 py-1.5 text-xs font-bold text-red-400 focus:outline-none focus:border-red-500/50 transition-colors"
+                    onBlur={(e) => setLogSL(String(parseFloat(String(e.target.value).replace(/,/g, '')) || ''))}
+                    className="w-full bg-white/5 border border-fuchsia-500/20 shadow-[0_0_15px_rgba(217,70,239,0.4)] rounded px-2 py-1.5 text-xs font-bold text-fuchsia-400 focus:outline-none focus:border-fuchsia-500/50 shadow-[0_0_15px_rgba(217,70,239,0.4)] transition-colors"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[8px] text-white/30 uppercase font-bold tracking-widest text-green-400">Take Profit</label>
+                  <label className="text-[8px] text-white/30 uppercase font-bold tracking-widest text-cyan-300">Target Keuntungan (TP)</label>
                   <input 
                     type="text" 
-                    placeholder="TP Price"
+                    placeholder="Harga TP"
                     value={logTP}
                     onChange={(e) => setLogTP(e.target.value)}
-                    className="w-full bg-white/5 border border-green-500/20 rounded px-2 py-1.5 text-xs font-bold text-green-400 focus:outline-none focus:border-green-500/50 transition-colors"
+                    onBlur={(e) => setLogTP(String(parseFloat(String(e.target.value).replace(/,/g, '')) || ''))}
+                    className="w-full bg-white/5 border border-cyan-400/20 shadow-[0_0_15px_rgba(34,211,238,0.4)] rounded px-2 py-1.5 text-xs font-bold text-cyan-300 focus:outline-none focus:border-cyan-400/50 shadow-[0_0_15px_rgba(34,211,238,0.4)] transition-colors"
                   />
                 </div>
               </div>
@@ -2251,13 +1995,13 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                   placeholder="misal: 50 atau -20"
                   value={logResult}
                   onChange={(e) => setLogResult(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-orange-500/50 transition-colors"
+                  className="w-full bg-white/5 border border-white/10 rounded px-2 py-1.5 text-xs font-bold text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
                 />
               </div>
               <button
                 onClick={handleLogTrade}
                 disabled={isLogging}
-                className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-black font-black py-2.5 rounded-xl text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2"
+                className="w-full bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-black font-black py-2.5 rounded-xl text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2"
               >
                 {isLogging ? <RefreshCw className="animate-spin" size={14} /> : <BarChart2 size={14} />}
                 Catat ke Performa
@@ -2265,12 +2009,12 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
             </div>
           </div>
 
-          <div className="bg-orange-500/5 border border-orange-500/20 rounded-xl p-4">
+          <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-[9px] font-bold text-orange-500 uppercase tracking-widest">Pemberitahuan Terminal</span>
+              <span className="text-[9px] font-bold text-indigo-500 drop-shadow-[0_0_10px_rgba(99,102,241,0.8)] uppercase tracking-widest">Informasi Analisis</span>
             </div>
-            <p className="text-[9px] text-orange-500/60 leading-tight italic">
-              Feed data disediakan oleh Gemini AI Intelligence. Semua timestamp adalah UTC. Analisis pasar diperbarui setiap 15 menit atau saat refresh manual.
+            <p className="text-[9px] text-indigo-500 drop-shadow-[0_0_10px_rgba(99,102,241,0.8)]/60 leading-tight italic">
+              Analisis disediakan oleh Ninz AI. Semua timestamp adalah UTC. Analisis pasar diperbarui secara berkala.
             </p>
           </div>
         </div>

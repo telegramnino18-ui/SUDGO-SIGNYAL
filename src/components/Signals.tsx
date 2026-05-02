@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { collection, db, onSnapshot, query, orderBy, where, doc, updateDoc, Timestamp, handleFirestoreError, OperationType } from '../firebase';
 import { TrendingUp, TrendingDown, Clock, Lock, Eye, ChevronRight, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -9,6 +9,16 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
   const [signals, setSignals] = useState<any[]>([]);
   const [viewedSignals, setViewedSignals] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pairFilter, setPairFilter] = useState<'ALL' | 'XAU/USD' | 'BTC/USD'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'active' | 'closed'>('ALL');
+
+  const filteredSignals = useMemo(() => {
+    return signals.filter(signal => {
+      const matchPair = pairFilter === 'ALL' || signal.pair === pairFilter;
+      const matchStatus = statusFilter === 'ALL' || signal.status === statusFilter;
+      return matchPair && matchStatus;
+    });
+  }, [signals, pairFilter, statusFilter]);
 
   useEffect(() => {
     const q = query(
@@ -107,32 +117,102 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Sinyal Trading</h1>
-          <p className="text-sm text-white/40 mt-1">Sinyal XAU & BTC real-time dengan akurasi tinggi</p>
+          <h1 className="text-3xl font-black uppercase tracking-[0.2em]">SIGNAL</h1>
+          <p className="text-sm text-white/40 mt-1">Official Market Signals & Trade History</p>
         </div>
-        <div className="flex items-center gap-4 bg-[#0A0A0A] border border-white/5 p-4 rounded-2xl">
-          <div className="text-right">
-            <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Akses Harian</div>
-            <div className="text-sm font-bold">
-              {profile?.membership === 'premium' ? (
-                <span className="text-orange-500">Premium Tanpa Batas</span>
-              ) : (
-                <span className={profile?.dailyAccessCount >= 9 ? 'text-red-500' : 'text-white'}>
-                  {profile?.dailyAccessCount}/9 <span className="text-white/20">Digunakan</span>
-                </span>
-              )}
-            </div>
+        
+        <div className="flex flex-wrap items-center gap-4">
+          {/* Filters Bar */}
+          <div className="flex bg-white/5 border border-white/10 p-1 rounded-2xl h-fit">
+            <button 
+              onClick={() => setPairFilter('ALL')}
+              className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
+                pairFilter === 'ALL' 
+                  ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' 
+                  : 'text-white/40 hover:text-white'
+              }`}
+            >
+              SEMUA PAIR
+            </button>
+            <button 
+              onClick={() => setPairFilter('XAU/USD')}
+              className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
+                pairFilter === 'XAU/USD' 
+                  ? 'bg-yellow-500 text-white shadow-lg shadow-yellow-500/20' 
+                  : 'text-white/40 hover:text-white'
+              }`}
+            >
+              XAU/USD
+            </button>
+            <button 
+              onClick={() => setPairFilter('BTC/USD')}
+              className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
+                pairFilter === 'BTC/USD' 
+                  ? 'bg-orange-600 text-white shadow-lg shadow-orange-600/20' 
+                  : 'text-white/40 hover:text-white'
+              }`}
+            >
+              BTC/USD
+            </button>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-500">
-            <TrendingUp size={20} />
+
+          <div className="flex bg-white/5 border border-white/10 p-1 rounded-2xl h-fit">
+            <button 
+              onClick={() => setStatusFilter('ALL')}
+              className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
+                statusFilter === 'ALL' 
+                  ? 'bg-white/10 text-white shadow-lg shadow-white/5' 
+                  : 'text-white/40 hover:text-white'
+              }`}
+            >
+              SEMUA STATUS
+            </button>
+            <button 
+              onClick={() => setStatusFilter('active')}
+              className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
+                statusFilter === 'active' 
+                  ? 'bg-cyan-400 text-white shadow-lg shadow-cyan-400/20' 
+                  : 'text-white/40 hover:text-white'
+              }`}
+            >
+              AKTIF
+            </button>
+            <button 
+              onClick={() => setStatusFilter('closed')}
+              className={`px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
+                statusFilter === 'closed' 
+                  ? 'bg-white/5 text-white/60 shadow-lg shadow-white/5' 
+                  : 'text-white/40 hover:text-white'
+              }`}
+            >
+              SELESAI
+            </button>
+          </div>
+
+          <div className="flex items-center gap-4 bg-[#0A0A0A] border border-white/5 p-3 rounded-xl">
+            <div className="text-right">
+              <div className="text-[9px] text-white/40 uppercase tracking-widest font-bold">Akses Harian</div>
+              <div className="text-xs font-bold whitespace-nowrap">
+                {profile?.membership === 'premium' ? (
+                  <span className="text-orange-500">Premium Unlimited</span>
+                ) : (
+                  <span className={profile?.dailyAccessCount >= 9 ? 'text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]' : 'text-white'}>
+                    {profile?.dailyAccessCount}/9
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center text-orange-500">
+              <TrendingUp size={16} />
+            </div>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {signals.map((signal, i) => {
+        {filteredSignals.map((signal, i) => {
           const isViewed = profile?.membership === 'premium' || viewedSignals.includes(signal.id) || signal.status === 'closed';
           
           return (
@@ -157,7 +237,7 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
                   </div>
                 </div>
                 <div className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest ${
-                  signal.status === 'active' ? 'bg-green-500/10 text-green-500 animate-pulse' : 'bg-white/10 text-white/40'
+                  signal.status === 'active' ? 'bg-cyan-400/10 text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] animate-pulse' : 'bg-white/10 text-white/40'
                 }`}>
                   {signal.status === 'active' ? 'Aktif' : 'Selesai'}
                 </div>
@@ -181,7 +261,7 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
 
                 <div className="flex items-center justify-between">
                   <div className={`text-lg font-black italic tracking-tighter ${
-                    signal.action === 'BUY' ? 'text-green-500' : 'text-red-500'
+                    signal.action === 'BUY' ? 'text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]'
                   }`}>
                     ORDER {signal.action === 'BUY' ? 'BELI' : 'JUAL'}
                   </div>
@@ -190,16 +270,16 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-white/5 p-3 rounded-xl border border-white/5">
-                    <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">Ambil Untung</div>
-                    <div className="text-sm font-bold text-green-500">{signal.tp}</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                      <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">Target Keuntungan (TP)</div>
+                      <div className="text-sm font-bold text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">{signal.tp}</div>
+                    </div>
+                    <div className="bg-white/5 p-3 rounded-xl border border-white/5">
+                      <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">Batasi Kerugian (SL)</div>
+                      <div className="text-sm font-bold text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]">{signal.sl}</div>
+                    </div>
                   </div>
-                  <div className="bg-white/5 p-3 rounded-xl border border-white/5">
-                    <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">Stop Rugi</div>
-                    <div className="text-sm font-bold text-red-500">{signal.sl}</div>
-                  </div>
-                </div>
 
                 {signal.analysis && (
                   <div className="pt-2">
@@ -212,13 +292,13 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
 
                 {signal.status === 'closed' && (
                   <div className={`mt-4 p-3 rounded-xl flex items-center justify-between ${
-                    signal.result > 0 ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'
+                    signal.result > 0 ? 'bg-cyan-400/10 border border-cyan-400/20 shadow-[0_0_15px_rgba(34,211,238,0.4)]' : 'bg-fuchsia-500/10 border border-fuchsia-500/20 shadow-[0_0_15px_rgba(217,70,239,0.4)]'
                   }`}>
                     <div className="flex items-center gap-2">
-                      {signal.result > 0 ? <CheckCircle2 size={14} className="text-green-500" /> : <AlertCircle size={14} className="text-red-500" />}
+                      {signal.result > 0 ? <CheckCircle2 size={14} className="text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" /> : <AlertCircle size={14} className="text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]" />}
                       <span className="text-[10px] font-bold uppercase tracking-widest">Hasil</span>
                     </div>
-                    <div className={`font-bold text-sm ${signal.result > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    <div className={`font-bold text-sm ${signal.result > 0 ? 'text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]'}`}>
                       {signal.result > 0 ? '+' : ''}{signal.result} Pips
                     </div>
                   </div>
@@ -227,6 +307,23 @@ export const Signals = ({ profile, setProfile }: { profile: any, setProfile: any
             </motion.div>
           );
         })}
+        {filteredSignals.length === 0 && (
+          <div className="col-span-full py-20 text-center bg-[#0A0A0A] border border-dashed border-white/10 rounded-3xl">
+            <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4 border border-white/5">
+              <Clock className="text-white/20" size={32} />
+            </div>
+            <h3 className="text-lg font-bold text-white mb-1">Tidak Ada Sinyal</h3>
+            <p className="text-sm text-white/40 max-w-xs mx-auto">
+              Tidak ditemukan sinyal dengan kriteria filter saat ini.
+            </p>
+            <button 
+              onClick={() => { setPairFilter('ALL'); setStatusFilter('ALL'); }}
+              className="mt-6 text-xs font-bold text-orange-500 uppercase tracking-widest hover:text-orange-400 underline underline-offset-4"
+            >
+              Reset Filter
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

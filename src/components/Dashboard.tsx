@@ -100,10 +100,10 @@ export const Dashboard = ({ profile }: { profile: any }) => {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          { label: 'Tingkat Kemenangan', value: `${stats.winRate}%`, icon: Target, color: 'text-green-500' },
+          { label: 'Tingkat Kemenangan', value: `${stats.winRate}%`, icon: Target, color: 'text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' },
           { label: 'Total Profit', value: `${stats.totalProfit} pips`, icon: BarChart3, color: 'text-orange-500' },
           { label: 'Total Trade', value: stats.totalTrades, icon: TrendingUp, color: 'text-blue-500' },
-          { label: 'Batas Harian', value: profile?.membership === 'premium' ? 'Tanpa Batas' : `${profile?.dailyAccessCount}/9`, icon: ShieldCheck, color: 'text-purple-500' },
+          { label: 'Batas Harian', value: profile?.membership === 'premium' ? 'Tanpa Batas' : `${profile?.dailyAccessCount}/9`, icon: ShieldCheck, color: 'text-indigo-500 drop-shadow-[0_0_10px_rgba(99,102,241,0.8)]' },
         ].map((stat, i) => (
           <motion.div
             key={stat.label}
@@ -201,7 +201,7 @@ export const Dashboard = ({ profile }: { profile: any }) => {
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-xs ${
-                        signal.action === 'BUY' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'
+                        signal.action === 'BUY' ? 'bg-cyan-400/10 text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'bg-fuchsia-500/10 text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]'
                       }`}>
                         {signal.action === 'BUY' ? 'BELI' : 'JUAL'}
                       </div>
@@ -212,18 +212,18 @@ export const Dashboard = ({ profile }: { profile: any }) => {
                     </div>
                     <div className="text-right">
                       <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Status</div>
-                      <div className="text-[10px] text-green-500 font-bold uppercase tracking-widest animate-pulse">Aktif</div>
+                      <div className="text-[10px] text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] font-bold uppercase tracking-widest animate-pulse">Aktif</div>
                     </div>
                   </div>
                   
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-white/5 p-3 rounded-xl">
-                      <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">Ambil Untung</div>
-                      <div className="text-sm font-bold text-green-500">{signal.tp}</div>
+                      <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">Target Keuntungan (TP)</div>
+                      <div className="text-sm font-bold text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">{signal.tp}</div>
                     </div>
                     <div className="bg-white/5 p-3 rounded-xl">
-                      <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">Stop Rugi</div>
-                      <div className="text-sm font-bold text-red-500">{signal.sl}</div>
+                      <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">Batasi Kerugian (SL)</div>
+                      <div className="text-sm font-bold text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]">{signal.sl}</div>
                     </div>
                   </div>
                 </motion.div>

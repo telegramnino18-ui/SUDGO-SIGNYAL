@@ -13,7 +13,8 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && (
         request.auth.token.email == "traderpro11@ninzsignal.com" ||
-        request.auth.token.email == "telegramnino18@gmail.com"
+        request.auth.token.email == "telegramnino18@gmail.com" ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin"
       );
     }
 
@@ -45,6 +46,15 @@ service cloud.firestore {
       
       // Allow admins to do anything
       allow create, update, delete: if isAdmin();
+    }
+
+    // Rules for settings collection
+    match /settings/{settingId} {
+      // Allow everyone to read settings (for webhook usage in Analysis.tsx)
+      allow read: if true;
+      
+      // Allow admins to write settings
+      allow write: if isAdmin();
     }
   }
 }

@@ -104,10 +104,10 @@ export const Performance = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          { label: 'Win Rate', value: `${stats.winRate}%`, icon: Target, color: 'text-green-500' },
+          { label: 'Tingkat Kemenangan', value: `${stats.winRate}%`, icon: Target, color: 'text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' },
           { label: 'Total Profit', value: `${stats.totalProfit} pips`, icon: BarChart3, color: 'text-orange-500' },
           { label: 'Trade Terbaik', value: `+${stats.bestTrade} pips`, icon: TrendingUp, color: 'text-blue-500' },
-          { label: 'Trade Terburuk', value: `${stats.worstTrade} pips`, icon: TrendingDown, color: 'text-red-500' },
+          { label: 'Trade Terburuk', value: `${stats.worstTrade} pips`, icon: TrendingDown, color: 'text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]' },
         ].map((stat, i) => (
           <motion.div
             key={stat.label}
@@ -132,7 +132,7 @@ export const Performance = () => {
         <div className="lg:col-span-2 bg-[#0A0A0A] border border-white/5 rounded-2xl p-8">
           <div className="flex items-center justify-between mb-8">
             <div>
-              <h2 className="text-xl font-bold tracking-tight">Kurva Pertumbuhan Profit</h2>
+              <h2 className="text-xl font-bold tracking-tight">Kurva Pertumbuhan Profit Kumulatif</h2>
               <p className="text-xs text-white/40 mt-1">Akumulasi profit dari waktu ke waktu</p>
             </div>
           </div>
@@ -190,7 +190,7 @@ export const Performance = () => {
                 <div key={signal.id} className="flex items-center justify-between p-4 bg-white/5 rounded-xl border border-white/5">
                   <div className="flex items-center gap-3">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-[10px] ${
-                      signal.result > 0 ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'
+                      signal.result > 0 ? 'bg-cyan-400/10 text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'bg-fuchsia-500/10 text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]'
                     }`}>
                       {signal.action[0]}
                     </div>
@@ -201,7 +201,7 @@ export const Performance = () => {
                       </div>
                     </div>
                   </div>
-                  <div className={`font-bold text-xs ${signal.result > 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  <div className={`font-bold text-xs ${signal.result > 0 ? 'text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]'}`}>
                     {signal.result > 0 ? '+' : ''}{signal.result}
                   </div>
                 </div>
@@ -220,7 +220,7 @@ export const Performance = () => {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-xs text-white/40">Tingkat Keberhasilan</span>
-              <span className="text-xs font-bold text-green-500">{stats.winRate}%</span>
+              <span className="text-xs font-bold text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">{stats.winRate}%</span>
             </div>
           </div>
         </div>

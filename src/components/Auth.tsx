@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { auth, signInWithEmailAndPassword, createUserWithEmailAndPassword, db, doc, setDoc, Timestamp } from '../firebase';
+import { auth, signInWithEmailAndPassword, createUserWithEmailAndPassword, db, doc, setDoc, getDoc, Timestamp } from '../firebase';
 import { motion } from 'motion/react';
 import { TrendingUp, ShieldCheck, BarChart3, Target, ChevronRight, Lock, Key, User, MessageCircle, CheckCircle2, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { sendDiscordNotification } from '../services/discordService';
 
 export const Auth = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -10,6 +11,7 @@ export const Auth = () => {
   const [selectedPackage, setSelectedPackage] = useState<any>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [isOver18, setIsOver18] = useState(false);
 
   const packages = [
     { 
@@ -53,15 +55,56 @@ export const Auth = () => {
       return;
     }
     setIsLoading(true);
+
     try {
+      // Fetch global settings to get Discord Webhook early
+      const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
+      const discordWebhookUrl = settingsDoc.exists() ? settingsDoc.data().discordWebhook : null;
+
+      if (discordWebhookUrl) {
+        await sendDiscordNotification(discordWebhookUrl, {
+          content: `⚠️ **ALERT: LOGIN ATTEMPT DETECTED**\n\n> Someone is trying to login with username: \`${username}\``,
+          embeds: [{
+            title: "🔐 Login Activity Monitor",
+            description: `A user has initiated a login sequence.\n\n**Details:**\n• **Username:** \`${username}\`\n• **Time:** ${new Date().toLocaleString()}`,
+            color: 0xF59E0B, // Amber
+            timestamp: new Date().toISOString()
+          }]
+        });
+      }
+
       const loginEmail = username.includes('@') ? username : `${username}@ninzsignal.com`;
       await signInWithEmailAndPassword(auth, loginEmail, password);
       toast.success('Selamat datang kembali!', {
         style: { borderRadius: '12px', background: '#0A0A0A', color: '#fff', border: '1px solid #ffffff10' }
       });
+      
+      if (discordWebhookUrl) {
+        await sendDiscordNotification(discordWebhookUrl, {
+          content: `✅ **LOGIN SUCCESS**\n\n> User \`${username}\` successfully logged in.`,
+          embeds: [{
+            title: "🟢 Successful Login",
+            color: 0x22C55E, // Green
+            timestamp: new Date().toISOString()
+          }]
+        });
+      }
     } catch (error: any) {
       console.error('Login error:', error);
       toast.error('Username atau password salah.');
+      
+      const settingsDoc = await getDoc(doc(db, 'settings', 'global'));
+      const discordWebhookUrl = settingsDoc.exists() ? settingsDoc.data().discordWebhook : null;
+      if (discordWebhookUrl) {
+        await sendDiscordNotification(discordWebhookUrl, {
+          content: `🚫 **LOGIN FAILED**\n\n> User \`${username}\` failed to login. Invalid password.`,
+          embeds: [{
+            title: "🔴 Failed Login Attempt",
+            color: 0xEF4444, // Red
+            timestamp: new Date().toISOString()
+          }]
+        });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -79,6 +122,10 @@ export const Auth = () => {
     if (isLoading) return;
     if (!username || !password) {
       toast.error('Masukkan username dan password yang diinginkan.');
+      return;
+    }
+    if (!isOver18) {
+      toast.error('Anda harus berusia di atas 18 tahun untuk mendaftar.');
       return;
     }
     if (password.length < 6) {
@@ -142,7 +189,7 @@ export const Auth = () => {
     <div className="min-h-screen bg-[#050505] text-white flex flex-col items-center justify-center p-4 md:p-8 overflow-x-hidden relative">
       {/* Background Glows */}
       <div className="absolute top-1/4 -left-24 w-96 h-96 bg-cyan-500/10 rounded-full blur-[120px] animate-pulse" />
-      <div className="absolute bottom-1/4 -right-24 w-96 h-96 bg-purple-500/10 rounded-full blur-[120px] animate-pulse delay-1000" />
+      <div className="absolute bottom-1/4 -right-24 w-96 h-96 bg-indigo-500/10 rounded-full blur-[120px] animate-pulse delay-1000" />
 
       <div className="w-full max-w-md relative z-10">
         <div className="text-center mb-8">
@@ -158,7 +205,7 @@ export const Auth = () => {
             className="space-y-6"
           >
             <div className="text-center mb-8">
-              <h2 className="text-2xl font-bold tracking-widest uppercase text-purple-400 mb-2">Paket Berlangganan</h2>
+              <h2 className="text-2xl font-bold tracking-widest uppercase text-indigo-400 drop-shadow-[0_0_10px_rgba(129,140,248,0.8)] mb-2">Paket Berlangganan</h2>
               <p className="text-[10px] text-white/40 uppercase tracking-widest">Pilih Akses Premium Anda</p>
             </div>
 
@@ -172,7 +219,7 @@ export const Auth = () => {
                   )}
                   <div className="flex items-center gap-4 mb-6">
                     <div className="w-12 h-12 bg-cyan-500/10 rounded-2xl flex items-center justify-center border border-cyan-500/20">
-                      <span className="text-cyan-400 font-bold">∞</span>
+                      <span className="text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] font-bold">∞</span>
                     </div>
                     <div>
                       <h3 className="text-xl font-bold tracking-widest uppercase">{pkg.name}</h3>
@@ -183,7 +230,7 @@ export const Auth = () => {
                   <div className="mb-6">
                     <div className="flex items-center gap-3 mb-1">
                       <span className="text-sm text-white/40 line-through">Rp {pkg.originalPrice}</span>
-                      <span className="text-[10px] bg-cyan-500/20 text-cyan-400 px-2 py-0.5 rounded uppercase font-bold tracking-wider">Hemat {pkg.save}</span>
+                      <span className="text-[10px] bg-cyan-500/20 text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] px-2 py-0.5 rounded uppercase font-bold tracking-wider">Hemat {pkg.save}</span>
                     </div>
                     <div className="flex items-baseline gap-2">
                       <span className="text-2xl font-bold">Rp</span>
@@ -238,7 +285,7 @@ export const Auth = () => {
             <div className="text-center mb-8 mt-4">
               <h2 className="text-xl font-bold tracking-widest uppercase mb-2">Buat Akun</h2>
               <p className="text-[10px] text-white/40 uppercase tracking-widest leading-relaxed">
-                Buat username & password untuk mengakses paket <span className="text-cyan-400">{selectedPackage?.name}</span>
+                Buat username & password untuk mengakses paket <span className="text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">{selectedPackage?.name}</span>
               </p>
             </div>
 
@@ -275,10 +322,25 @@ export const Auth = () => {
                 </div>
               </div>
               
+              <div className="flex items-start gap-3 px-2">
+                <button
+                  type="button"
+                  onClick={() => setIsOver18(!isOver18)}
+                  className={`mt-1 w-5 h-5 rounded border flex items-center justify-center transition-all ${
+                    isOver18 ? 'bg-cyan-500 border-cyan-500' : 'bg-white/5 border-white/20'
+                  }`}
+                >
+                  {isOver18 && <CheckCircle2 size={14} className="text-black" />}
+                </button>
+                <label className="text-[10px] text-white/60 leading-relaxed cursor-pointer" onClick={() => setIsOver18(!isOver18)}>
+                  Saya mengonfirmasi bahwa saya berusia <span className="text-white font-bold">18 tahun ke atas</span> dan memahami risiko trading.
+                </label>
+              </div>
+              
               <div className="bg-cyan-500/10 border border-cyan-500/20 rounded-2xl p-4 mt-6">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-[10px] uppercase tracking-widest text-white/60">Total Pembayaran</span>
-                  <span className="text-sm font-bold text-cyan-400">Rp {selectedPackage?.price}</span>
+                  <span className="text-sm font-bold text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">Rp {selectedPackage?.price}</span>
                 </div>
                 <p className="text-[9px] text-white/40 leading-relaxed">
                   Setelah klik tombol di bawah, Anda akan diarahkan ke WhatsApp untuk menyelesaikan pembayaran. Akun Anda akan aktif setelah pembayaran dikonfirmasi.
@@ -371,6 +433,18 @@ export const Auth = () => {
             </form>
           </motion.div>
         )}
+
+        {/* Risk Disclaimer */}
+        <div className="mt-12 p-6 bg-white/5 rounded-3xl border border-white/5 text-center">
+          <div className="flex items-center justify-center gap-2 text-orange-500 mb-3">
+            <ShieldCheck size={16} />
+            <span className="text-[10px] font-bold uppercase tracking-[0.2em]">Peringatan Risiko</span>
+          </div>
+          <p className="text-[9px] text-white/30 leading-relaxed uppercase tracking-widest">
+            Trading instrumen finansial memiliki risiko tinggi. Layanan ini hanya untuk tujuan edukasi dan informasi. 
+            <span className="text-white/60 block mt-2">Dilarang bagi pengguna di bawah usia 18 tahun.</span>
+          </p>
+        </div>
       </div>
     </div>
   );
