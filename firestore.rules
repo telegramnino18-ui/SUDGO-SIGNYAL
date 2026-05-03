@@ -41,8 +41,9 @@ service cloud.firestore {
 
     // Rules for signals collection
     match /signals/{signalId} {
-      // Allow everyone to read signals
-      allow read: if true;
+      // Only authenticated users who are not pending can read signals
+      allow read: if isAuthenticated() && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.membership != "pending";
       
       // Allow admins to do anything
       allow create, update, delete: if isAdmin();

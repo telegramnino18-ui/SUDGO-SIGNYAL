@@ -44,7 +44,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
       return (
         <div className="min-h-[400px] flex flex-col items-center justify-center p-8 text-center bg-[#0A0A0A] border border-white/5 rounded-3xl m-8">
-          <div className="w-16 h-16 rounded-2xl bg-fuchsia-500/10 flex items-center justify-center text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)] mb-6">
+          <div className="w-16 h-16 rounded-2xl bg-purple-500/10 flex items-center justify-center text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)] mb-6">
             <AlertCircle size={32} />
           </div>
           <h2 className="text-2xl font-bold tracking-tight mb-2">Ups! Ada Masalah</h2>

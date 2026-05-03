@@ -14,6 +14,7 @@ import { User } from 'firebase/auth';
 import { Bell } from 'lucide-react';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { Background } from './components/Background';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -53,7 +54,7 @@ export default function App() {
               email: currentUser.email,
               displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
               role: isAdmin ? 'admin' : 'user',
-              membership: isAdmin ? 'premium' : 'free', // Give admin premium access by default
+              membership: isAdmin ? 'premium' : 'pending', // Give admin premium access by default
               dailyAccessCount: 0,
               lastAccessDate: new Date().toISOString().split('T')[0],
               notificationSettings: { email: true, push: true }
@@ -124,7 +125,7 @@ export default function App() {
 
   // Real-time signal notifications
   useEffect(() => {
-    if (!user) return;
+    if (!user || !userProfile || userProfile.membership === 'pending' || userProfile.membership === 'expired') return;
 
     const signalsQuery = query(
       collection(db, 'signals')
@@ -149,7 +150,7 @@ export default function App() {
               <div className="flex-1 w-0 p-4">
                 <div className="flex items-start">
                   <div className="flex-shrink-0 pt-0.5">
-                    <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-500">
+                    <div className="w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center text-violet-500">
                       <Bell size={20} />
                     </div>
                   </div>
@@ -166,7 +167,7 @@ export default function App() {
               <div className="flex border-l border-white/5">
                 <button
                   onClick={() => toast.dismiss(t.id)}
-                  className="w-full border border-transparent rounded-none rounded-r-lg p-4 flex items-center justify-center text-xs font-bold text-orange-500 hover:text-orange-400 focus:outline-none"
+                  className="w-full border border-transparent rounded-none rounded-r-lg p-4 flex items-center justify-center text-xs font-bold text-violet-500 hover:text-violet-400 focus:outline-none"
                 >
                   Tutup
                 </button>
@@ -184,14 +185,16 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-black text-white">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-orange-500"></div>
+      <div className="flex items-center justify-center min-h-screen text-white relative">
+        <Background />
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-violet-500 relative z-10"></div>
       </div>
     );
   }
 
   return (
     <ErrorBoundary>
+      <Background />
       <Router>
         <Toaster position="top-right" />
         <Routes>

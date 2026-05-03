@@ -84,7 +84,7 @@ export const Performance = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
-        <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-violet-500 animate-spin" />
       </div>
     );
   }
@@ -97,17 +97,17 @@ export const Performance = () => {
           <p className="text-sm text-white/40 mt-1">Data historis dan analisis tingkat kemenangan</p>
         </div>
         <div className="flex items-center gap-2 bg-white/5 p-2 rounded-xl">
-          <button className="px-4 py-2 rounded-lg bg-orange-500 text-[10px] font-bold uppercase tracking-widest">Semua Waktu</button>
+          <button className="px-4 py-2 rounded-lg bg-violet-500 text-[10px] font-bold uppercase tracking-widest">Semua Waktu</button>
           <button className="px-4 py-2 rounded-lg bg-transparent text-[10px] font-bold uppercase tracking-widest text-white/40 hover:text-white transition-all">Bulanan</button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          { label: 'Tingkat Kemenangan', value: `${stats.winRate}%`, icon: Target, color: 'text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' },
-          { label: 'Total Profit', value: `${stats.totalProfit} pips`, icon: BarChart3, color: 'text-orange-500' },
+          { label: 'Tingkat Kemenangan', value: `${stats.winRate}%`, icon: Target, color: 'text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]' },
+          { label: 'Total Profit', value: `${stats.totalProfit} pips`, icon: BarChart3, color: 'text-violet-500' },
           { label: 'Trade Terbaik', value: `+${stats.bestTrade} pips`, icon: TrendingUp, color: 'text-blue-500' },
-          { label: 'Trade Terburuk', value: `${stats.worstTrade} pips`, icon: TrendingDown, color: 'text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]' },
+          { label: 'Trade Terburuk', value: `${stats.worstTrade} pips`, icon: TrendingDown, color: 'text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]' },
         ].map((stat, i) => (
           <motion.div
             key={stat.label}
@@ -180,7 +180,7 @@ export const Performance = () => {
         {/* Trade History Sidebar */}
         <div className="bg-[#0A0A0A] border border-white/5 rounded-2xl p-8 flex flex-col">
           <div className="flex items-center gap-2 mb-8">
-            <History className="text-orange-500" size={20} />
+            <History className="text-violet-500" size={20} />
             <h2 className="text-lg font-bold tracking-tight">Riwayat Trade</h2>
           </div>
 
@@ -190,7 +190,7 @@ export const Performance = () => {
                 <div key={signal.id} className="flex items-center justify-between p-4 bg-white/5 rounded-xl border border-white/5">
                   <div className="flex items-center gap-3">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-[10px] ${
-                      signal.result > 0 ? 'bg-cyan-400/10 text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'bg-fuchsia-500/10 text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]'
+                      signal.result > 0 ? 'bg-indigo-400/10 text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]' : 'bg-purple-500/10 text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]'
                     }`}>
                       {signal.action[0]}
                     </div>
@@ -201,7 +201,7 @@ export const Performance = () => {
                       </div>
                     </div>
                   </div>
-                  <div className={`font-bold text-xs ${signal.result > 0 ? 'text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]'}`}>
+                  <div className={`font-bold text-xs ${signal.result > 0 ? 'text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]' : 'text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]'}`}>
                     {signal.result > 0 ? '+' : ''}{signal.result}
                   </div>
                 </div>
@@ -220,7 +220,7 @@ export const Performance = () => {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-xs text-white/40">Tingkat Keberhasilan</span>
-              <span className="text-xs font-bold text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">{stats.winRate}%</span>
+              <span className="text-xs font-bold text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]">{stats.winRate}%</span>
             </div>
           </div>
         </div>

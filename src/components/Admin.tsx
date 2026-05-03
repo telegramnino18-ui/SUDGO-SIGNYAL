@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { collection, db, addDoc, updateDoc, doc, onSnapshot, query, orderBy, where, Timestamp, handleFirestoreError, OperationType, setDoc } from '../firebase';
-import { TrendingUp, TrendingDown, Plus, X, CheckCircle2, AlertCircle, Clock, BarChart3, Target, ShieldCheck, Users, UserCheck, BellRing, Save } from 'lucide-react';
+import { collection, db, addDoc, updateDoc, doc, deleteDoc, onSnapshot, query, orderBy, where, Timestamp, handleFirestoreError, OperationType, setDoc } from '../firebase';
+import { TrendingUp, TrendingDown, Plus, X, CheckCircle2, AlertCircle, Clock, BarChart3, Target, ShieldCheck, Users, UserCheck, BellRing, Save, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import toast from 'react-hot-toast';
 import { sendDiscordNotification, formatSignalMessage } from '../services/discordService';
@@ -11,6 +11,7 @@ export const Admin = () => {
   const [users, setUsers] = useState<any[]>([]);
   const [settings, setSettings] = useState<any>({ discordWebhook: '' });
   const [showAddModal, setShowAddModal] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<string | null>(null);
   const [newSignal, setNewSignal] = useState({
     pair: 'XAU/USD',
     action: 'BUY',
@@ -130,6 +131,25 @@ export const Admin = () => {
     }
   };
 
+  const handleDeleteUser = (userId: string) => {
+    setUserToDelete(userId);
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!userToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'users', userToDelete));
+      toast.success('User berhasil dihapus!', {
+        style: { borderRadius: '12px', background: '#0A0A0A', color: '#EF4444', border: '1px solid #EF4444' }
+      });
+      setUserToDelete(null);
+    } catch (error) {
+      toast.error('Gagal menghapus user.');
+      handleFirestoreError(error, OperationType.DELETE, `users/${userToDelete}`);
+      setUserToDelete(null);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -141,7 +161,7 @@ export const Admin = () => {
           <button
             onClick={() => setActiveTab('signals')}
             className={`px-6 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${
-              activeTab === 'signals' ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/20' : 'text-white/40 hover:text-white'
+              activeTab === 'signals' ? 'bg-violet-500 text-white shadow-lg shadow-violet-500/20' : 'text-white/40 hover:text-white'
             }`}
           >
             Sinyal Aktif
@@ -149,7 +169,7 @@ export const Admin = () => {
           <button
             onClick={() => setActiveTab('users')}
             className={`px-6 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${
-              activeTab === 'users' ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20' : 'text-white/40 hover:text-white'
+              activeTab === 'users' ? 'bg-indigo-500 text-black shadow-lg shadow-indigo-500/20' : 'text-white/40 hover:text-white'
             }`}
           >
             Pengguna
@@ -170,7 +190,7 @@ export const Admin = () => {
           <div className="flex justify-end">
             <button
               onClick={() => setShowAddModal(true)}
-              className="bg-orange-500 text-white px-6 py-3 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20 flex items-center gap-2"
+              className="bg-white text-black px-6 py-3 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-gray-200 transition-all shadow-lg shadow-white/20 flex items-center gap-2"
             >
               <Plus size={18} /> Sinyal Baru
             </button>
@@ -180,12 +200,12 @@ export const Admin = () => {
               <div key={signal.id} className="bg-[#0A0A0A] border border-white/5 rounded-2xl p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-lg ${signal.pair === 'XAU/USD' ? 'bg-yellow-500/10 text-yellow-500' : 'bg-orange-500/10 text-orange-500'}`}>
+                    <div className={`p-2 rounded-lg ${signal.pair === 'XAU/USD' ? 'bg-blue-500/10 text-blue-500' : 'bg-violet-500/10 text-violet-500'}`}>
                       <TrendingUp size={16} />
                     </div>
                     <div className="font-bold text-sm tracking-tight">{signal.pair}</div>
                   </div>
-                  <div className={`text-[10px] font-bold uppercase tracking-widest ${signal.action === 'BUY' ? 'text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]'}`}>
+                  <div className={`text-[10px] font-bold uppercase tracking-widest ${signal.action === 'BUY' ? 'text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]' : 'text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]'}`}>
                     {signal.action === 'BUY' ? 'BELI' : 'JUAL'}
                   </div>
                 </div>
@@ -197,11 +217,11 @@ export const Admin = () => {
                   </div>
                   <div className="bg-white/5 p-2 rounded-lg text-center">
                     <div className="text-[8px] text-white/40 uppercase font-bold">TP</div>
-                    <div className="text-xs font-bold text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">{signal.tp}</div>
+                    <div className="text-xs font-bold text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]">{signal.tp}</div>
                   </div>
                   <div className="bg-white/5 p-2 rounded-lg text-center">
                     <div className="text-[8px] text-white/40 uppercase font-bold">SL</div>
-                    <div className="text-xs font-bold text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]">{signal.sl}</div>
+                    <div className="text-xs font-bold text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]">{signal.sl}</div>
                   </div>
                 </div>
 
@@ -211,7 +231,7 @@ export const Admin = () => {
                       const res = prompt('Masukkan profit/loss dalam pips (misal: 50 atau -30):');
                       if (res) handleCloseSignal(signal.id, parseFloat(res));
                     }}
-                    className="bg-cyan-400/10 text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-cyan-400/20 transition-all"
+                    className="bg-indigo-400/10 text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)] py-3 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-400/20 transition-all"
                   >
                     Tutup TP/SL
                   </button>
@@ -249,25 +269,25 @@ export const Admin = () => {
                     <td className="px-6 py-4 font-medium">{user.displayName || user.email?.split('@')[0]}</td>
                     <td className="px-6 py-4">
                       {user.membership === 'premium' ? (
-                        <span className="bg-cyan-500/20 text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border border-cyan-500/30">
+                        <span className="bg-indigo-500/20 text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)] px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border border-indigo-500/30">
                           Aktif
                         </span>
                       ) : user.membership === 'expired' ? (
-                        <span className="bg-fuchsia-500/20 text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)] px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border border-fuchsia-500/30 shadow-[0_0_15px_rgba(217,70,239,0.4)]">
+                        <span className="bg-purple-500/20 text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)] px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.4)]">
                           Expired
                         </span>
                       ) : (
-                        <span className="bg-orange-500/20 text-orange-500 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border border-orange-500/30">
+                        <span className="bg-violet-500/20 text-violet-500 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border border-violet-500/30">
                           Pending
                         </span>
                       )}
                     </td>
                     <td className="px-6 py-4 text-white/60">{user.selectedPackage || '-'}</td>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 flex items-center gap-2">
                       {user.membership !== 'premium' && (
                         <button
                           onClick={() => handleActivateUser(user.id, user.selectedPackage || 'BASIC')}
-                          className="bg-cyan-500 text-black px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-cyan-400 transition-all flex items-center gap-2"
+                          className="bg-white text-black px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-gray-200 transition-all flex items-center gap-2"
                         >
                           <UserCheck size={14} /> Aktifkan
                         </button>
@@ -277,6 +297,13 @@ export const Admin = () => {
                           Exp: {user.expiresAt.toDate().toLocaleDateString()}
                         </span>
                       )}
+                      <button
+                        onClick={() => handleDeleteUser(user.id)}
+                        className="bg-red-500/10 text-red-500 p-2 rounded-xl hover:bg-red-500 hover:text-white transition-all flex items-center justify-center"
+                        title="Hapus Pengguna"
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -326,7 +353,7 @@ export const Admin = () => {
                     toast.error('Gagal menyimpan pengaturan.');
                   }
                 }}
-                className="w-full bg-indigo-500 text-white py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-indigo-600 transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2"
+                className="w-full bg-white text-black py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-gray-200 transition-all shadow-lg shadow-white/20 flex items-center justify-center gap-2"
               >
                 <Save size={16} /> Simpan Pengaturan
               </button>
@@ -378,7 +405,7 @@ export const Admin = () => {
                     <select
                       value={newSignal.pair}
                       onChange={(e) => setNewSignal({ ...newSignal, pair: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm focus:border-orange-500 outline-none"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm focus:border-violet-500 outline-none"
                     >
                       <option value="XAU/USD">XAU/USD</option>
                       <option value="BTC/USD">BTC/USD</option>
@@ -389,7 +416,7 @@ export const Admin = () => {
                     <select
                       value={newSignal.action}
                       onChange={(e) => setNewSignal({ ...newSignal, action: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm focus:border-orange-500 outline-none"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm focus:border-violet-500 outline-none"
                     >
                       <option value="BUY">BELI</option>
                       <option value="SELL">JUAL</option>
@@ -405,33 +432,33 @@ export const Admin = () => {
                     required
                     value={newSignal.entryPrice}
                     onChange={(e) => setNewSignal({ ...newSignal, entryPrice: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm focus:border-orange-500 outline-none"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm focus:border-violet-500 outline-none"
                     placeholder="misal: 2150.50"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">Take Profit</label>
+                    <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]">Take Profit</label>
                     <input
                       type="number"
                       step="any"
                       required
                       value={newSignal.tp}
                       onChange={(e) => setNewSignal({ ...newSignal, tp: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm focus:border-orange-500 outline-none"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm focus:border-violet-500 outline-none"
                       placeholder="misal: 2165.00"
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]">Stop Loss</label>
+                    <label className="text-[10px] uppercase tracking-widest text-white/40 font-bold text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]">Stop Loss</label>
                     <input
                       type="number"
                       step="any"
                       required
                       value={newSignal.sl}
                       onChange={(e) => setNewSignal({ ...newSignal, sl: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm focus:border-orange-500 outline-none"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm focus:border-violet-500 outline-none"
                       placeholder="misal: 2140.00"
                     />
                   </div>
@@ -442,18 +469,57 @@ export const Admin = () => {
                   <textarea
                     value={newSignal.analysis}
                     onChange={(e) => setNewSignal({ ...newSignal, analysis: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm focus:border-orange-500 outline-none h-24 resize-none"
+                    className="w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm focus:border-violet-500 outline-none h-24 resize-none"
                     placeholder="Masukkan wawasan pasar real-time..."
                   />
                 </div>
 
                 <button
                   type="submit"
-                  className="w-full bg-orange-500 text-white py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20 mt-4"
+                  className="w-full bg-white text-black py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-gray-200 transition-all shadow-lg shadow-white/20 mt-4"
                 >
                   Posting Sinyal
                 </button>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {userToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="bg-[#0A0A0A] border border-white/10 p-6 rounded-3xl w-full max-w-sm"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold">Hapus Pengguna</h3>
+                <button onClick={() => setUserToDelete(null)} className="text-white/40 hover:text-white transition-colors">
+                  <X size={24} />
+                </button>
+              </div>
+              <p className="text-sm text-white/60 mb-6 font-medium">
+                Apakah Anda yakin ingin menghapus pengguna ini? Semua data terkait (termasuk akses sinyal) akan hilang dan tidak dapat dikembalikan.
+              </p>
+              <div className="flex gap-4">
+                <button
+                  type="button"
+                  onClick={() => setUserToDelete(null)}
+                  className="flex-1 bg-white/5 text-white/60 py-3 rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:bg-white/10 hover:text-white transition-all"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDeleteUser}
+                  className="flex-1 bg-red-500 text-white py-3 rounded-2xl font-bold uppercase tracking-widest text-[10px] hover:bg-red-600 transition-all shadow-lg shadow-red-500/20"
+                >
+                  Hapus
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

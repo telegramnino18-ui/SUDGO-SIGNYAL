@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { doc, db, updateDoc } from '../firebase';
-import { User, Mail, ShieldCheck, Bell, CreditCard, CheckCircle2, AlertCircle, ChevronRight, LogOut, Clock } from 'lucide-react';
+import { User, Mail, ShieldCheck, Bell, CreditCard, CheckCircle2, AlertCircle, ChevronRight, LogOut, Clock, MessageCircle } from 'lucide-react';
 import { motion } from 'motion/react';
 import toast from 'react-hot-toast';
 import { auth, signOut } from '../firebase';
@@ -36,7 +36,7 @@ export const Profile = ({ profile, setProfile }: { profile: any, setProfile: any
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       <div className="flex items-center gap-6 p-8 bg-[#0A0A0A] border border-white/5 rounded-3xl">
-        <div className="w-24 h-24 rounded-3xl border-2 border-orange-500/20 bg-white/5 flex items-center justify-center text-white/40">
+        <div className="w-24 h-24 rounded-3xl border-2 border-violet-500/20 bg-white/5 flex items-center justify-center text-white/40">
           <User size={48} />
         </div>
         <div>
@@ -46,7 +46,7 @@ export const Profile = ({ profile, setProfile }: { profile: any, setProfile: any
           </p>
           <div className="flex items-center gap-2 mt-4">
             <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
-              profile?.membership === 'premium' ? 'bg-orange-500/20 text-orange-500 border border-orange-500/30' : 'bg-white/10 text-white/60'
+              profile?.membership === 'premium' ? 'bg-violet-500/20 text-violet-500 border border-violet-500/30' : 'bg-white/10 text-white/60'
             }`}>
               Member {profile?.membership === 'premium' ? 'Premium' : 'Gratis'}
             </span>
@@ -63,7 +63,7 @@ export const Profile = ({ profile, setProfile }: { profile: any, setProfile: any
         {/* Membership Card */}
         <div className="bg-[#0A0A0A] border border-white/5 rounded-3xl p-8 flex flex-col">
           <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 rounded-xl bg-orange-500/10 text-orange-500">
+            <div className="p-2 rounded-xl bg-violet-500/10 text-violet-500">
               <CreditCard size={20} />
             </div>
             <h2 className="text-xl font-bold tracking-tight">Paket Membership</h2>
@@ -71,26 +71,26 @@ export const Profile = ({ profile, setProfile }: { profile: any, setProfile: any
 
           <div className="flex-1 space-y-6">
             {profile?.membership === 'premium' ? (
-              <div className="p-6 bg-orange-500/10 rounded-2xl border border-orange-500/20 text-center relative overflow-hidden">
-                <div className="absolute -right-4 -top-4 text-orange-500/10">
+              <div className="p-6 bg-violet-500/10 rounded-2xl border border-violet-500/20 text-center relative overflow-hidden">
+                <div className="absolute -right-4 -top-4 text-violet-500/10">
                   <ShieldCheck size={120} />
                 </div>
-                <ShieldCheck size={48} className="text-orange-500 mx-auto mb-4 relative z-10" />
-                <h3 className="text-xl font-bold mb-2 text-orange-500 relative z-10">Premium Aktif</h3>
+                <ShieldCheck size={48} className="text-violet-500 mx-auto mb-4 relative z-10" />
+                <h3 className="text-xl font-bold mb-2 text-violet-500 relative z-10">Premium Aktif</h3>
                 <p className="text-xs text-white/60 leading-relaxed relative z-10">
                   Anda memiliki akses ke semua sinyal dan analitik real-time.
                 </p>
                 
-                <div className="mt-6 pt-6 border-t border-orange-500/20 relative z-10">
+                <div className="mt-6 pt-6 border-t border-violet-500/20 relative z-10">
                   <div className="flex justify-between items-center mb-2">
                     <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Paket Saat Ini</span>
-                    <span className="text-xs font-bold text-orange-500">{profile?.selectedPackage || 'PREMIUM'}</span>
+                    <span className="text-xs font-bold text-violet-500">{profile?.selectedPackage || 'PREMIUM'}</span>
                   </div>
                   {profile?.expiresAt && (
                     <div className="flex justify-between items-center">
                       <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Berakhir Pada</span>
                       <span className="text-xs font-bold text-white flex items-center gap-1">
-                        <Clock size={12} className="text-orange-500" />
+                        <Clock size={12} className="text-violet-500" />
                         {profile.expiresAt.toDate().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
                       </span>
                     </div>
@@ -148,7 +148,7 @@ export const Profile = ({ profile, setProfile }: { profile: any, setProfile: any
                     <button
                       onClick={() => handleUpdateNotifications(item.id as 'email' | 'push')}
                       className={`w-12 h-6 rounded-full transition-all relative ${
-                        profile?.notificationSettings?.[item.id] ? 'bg-orange-500' : 'bg-white/10'
+                        profile?.notificationSettings?.[item.id] ? 'bg-violet-500' : 'bg-white/10'
                       }`}
                     >
                       <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${
@@ -160,10 +160,32 @@ export const Profile = ({ profile, setProfile }: { profile: any, setProfile: any
               </div>
             </div>
 
+            {/* Hubungi Kami / About Section */}
+            <div className="pt-8 border-t border-white/5">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 rounded-xl bg-green-500/10 text-green-500">
+                  <MessageCircle size={20} />
+                </div>
+                <h2 className="text-xl font-bold tracking-tight">Bantuan & Informasi</h2>
+              </div>
+              <div className="bg-white/5 rounded-2xl border border-white/5 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="text-sm font-bold text-white">Hubungi Admin</div>
+                  <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold mt-1">Punya pertanyaan atau kendala?</div>
+                </div>
+                <button
+                  onClick={() => window.open(`https://wa.me/6282326933843?text=Halo Admin, saya ingin bertanya terkait aplikasi (${profile?.displayName})`, '_blank')}
+                  className="bg-[#25D366]/20 text-[#25D366] hover:bg-[#25D366]/30 border border-[#25D366]/30 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all whitespace-nowrap"
+                >
+                  WhatsApp Admin
+                </button>
+              </div>
+            </div>
+
             <div className="pt-8 border-t border-white/5">
               <button
                 onClick={handleLogout}
-                className="w-full flex items-center justify-center gap-3 p-4 text-fuchsia-400 hover:bg-fuchsia-400/5 rounded-2xl transition-all border border-fuchsia-400/20"
+                className="w-full flex items-center justify-center gap-3 p-4 text-purple-400 hover:bg-purple-400/5 rounded-2xl transition-all border border-purple-400/20"
               >
                 <LogOut size={20} />
                 <span className="font-bold uppercase tracking-widest text-xs">Keluar Sesi</span>

@@ -94,14 +94,14 @@ export const Dashboard = ({ profile }: { profile: any }) => {
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-sm font-bold text-white/60 uppercase tracking-widest">Statistik Performa</h2>
         <div className="flex items-center gap-2 text-[10px] text-white/30 uppercase tracking-widest font-bold">
-          <Clock size={10} className="animate-pulse text-orange-500" />
+          <Clock size={10} className="animate-pulse text-violet-500" />
           Auto-refresh: {format(lastUpdated, 'HH:mm:ss')}
         </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {[
-          { label: 'Tingkat Kemenangan', value: `${stats.winRate}%`, icon: Target, color: 'text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' },
-          { label: 'Total Profit', value: `${stats.totalProfit} pips`, icon: BarChart3, color: 'text-orange-500' },
+          { label: 'Tingkat Kemenangan', value: `${stats.winRate}%`, icon: Target, color: 'text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]' },
+          { label: 'Total Profit', value: `${stats.totalProfit} pips`, icon: BarChart3, color: 'text-violet-500' },
           { label: 'Total Trade', value: stats.totalTrades, icon: TrendingUp, color: 'text-blue-500' },
           { label: 'Batas Harian', value: profile?.membership === 'premium' ? 'Tanpa Batas' : `${profile?.dailyAccessCount}/9`, icon: ShieldCheck, color: 'text-indigo-500 drop-shadow-[0_0_10px_rgba(99,102,241,0.8)]' },
         ].map((stat, i) => (
@@ -133,7 +133,7 @@ export const Dashboard = ({ profile }: { profile: any }) => {
               <p className="text-xs text-white/40 mt-1">Pertumbuhan profit kumulatif dari waktu ke waktu</p>
             </div>
             <div className="flex gap-2">
-              <button className="px-3 py-1 rounded-full bg-orange-500 text-[10px] font-bold uppercase tracking-widest">Mingguan</button>
+              <button className="px-3 py-1 rounded-full bg-violet-500 text-[10px] font-bold uppercase tracking-widest">Mingguan</button>
               <button className="px-3 py-1 rounded-full bg-white/5 text-[10px] font-bold uppercase tracking-widest text-white/40">Bulanan</button>
             </div>
           </div>
@@ -183,7 +183,7 @@ export const Dashboard = ({ profile }: { profile: any }) => {
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold tracking-tight">Sinyal Aktif</h2>
-            <Link to="/signals" className="text-[10px] uppercase tracking-widest text-orange-500 font-bold flex items-center gap-1">
+            <Link to="/signals" className="text-[10px] uppercase tracking-widest text-violet-500 font-bold flex items-center gap-1">
               Lihat Semua <ChevronRight size={12} />
             </Link>
           </div>
@@ -196,12 +196,12 @@ export const Dashboard = ({ profile }: { profile: any }) => {
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.1 }}
-                  className="bg-[#0A0A0A] border border-white/5 p-5 rounded-2xl group hover:border-orange-500/30 transition-all"
+                  className="bg-[#0A0A0A] border border-white/5 p-5 rounded-2xl group hover:border-violet-500/30 transition-all"
                 >
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-xs ${
-                        signal.action === 'BUY' ? 'bg-cyan-400/10 text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 'bg-fuchsia-500/10 text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]'
+                        signal.action === 'BUY' ? 'bg-indigo-400/10 text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]' : 'bg-purple-500/10 text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]'
                       }`}>
                         {signal.action === 'BUY' ? 'BELI' : 'JUAL'}
                       </div>
@@ -212,18 +212,18 @@ export const Dashboard = ({ profile }: { profile: any }) => {
                     </div>
                     <div className="text-right">
                       <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold">Status</div>
-                      <div className="text-[10px] text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] font-bold uppercase tracking-widest animate-pulse">Aktif</div>
+                      <div className="text-[10px] text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)] font-bold uppercase tracking-widest animate-pulse">Aktif</div>
                     </div>
                   </div>
                   
                   <div className="grid grid-cols-2 gap-4">
                     <div className="bg-white/5 p-3 rounded-xl">
                       <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">Target Keuntungan (TP)</div>
-                      <div className="text-sm font-bold text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">{signal.tp}</div>
+                      <div className="text-sm font-bold text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]">{signal.tp}</div>
                     </div>
                     <div className="bg-white/5 p-3 rounded-xl">
                       <div className="text-[10px] text-white/40 uppercase tracking-widest font-bold mb-1">Batasi Kerugian (SL)</div>
-                      <div className="text-sm font-bold text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]">{signal.sl}</div>
+                      <div className="text-sm font-bold text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]">{signal.sl}</div>
                     </div>
                   </div>
                 </motion.div>
@@ -237,11 +237,11 @@ export const Dashboard = ({ profile }: { profile: any }) => {
           </div>
 
           {/* Market Analysis Mini Card */}
-          <div className="bg-gradient-to-br from-orange-500 to-orange-600 p-6 rounded-2xl relative overflow-hidden group">
+          <div className="bg-gradient-to-br from-violet-500 to-violet-600 p-6 rounded-2xl relative overflow-hidden group">
             <div className="relative z-10">
               <h3 className="font-bold text-lg leading-tight mb-2">Analitik Pasar Real-time</h3>
               <p className="text-xs text-white/80 mb-4">Dapatkan wawasan mendalam tentang tren pasar XAU & BTC.</p>
-              <Link to="/analysis" className="inline-block bg-white text-orange-600 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-white/90 transition-all">
+              <Link to="/analysis" className="inline-block bg-white text-violet-600 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-white/90 transition-all">
                 Jelajahi Analisis
               </Link>
             </div>

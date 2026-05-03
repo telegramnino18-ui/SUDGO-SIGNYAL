@@ -215,37 +215,37 @@ export const Analysis = ({ userProfile }: { userProfile: any }) => {
 
       const ai = new GoogleGenAI({ apiKey });
       const model = ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `Anda adalah pakar trading dengan pengalaman 15 tahun. Berikan sinyal trading akurat untuk pair ${selectedPair} timeframe ${selectedTimeframe}. Harga saat ini: ${livePricesRef.current[selectedPair].price}.
+        model: "gemini-3.1-pro-preview",
+        contents: `Anda adalah QUANT/ALGO TRADER PROFESIONAL (Elit Institusi Top Tier) dengan rekam jejak kemenangan 95% secara historis. Fokus Anda adalah keakuratan mutlak dan Anda HANYA memberikan sinyal jikaSetup memiliki probabilitas keberhasilan Super Ekstrim di atas 90%.
 
-Syarat akurasi tinggi (wajib semua kondisi terpenuhi):
+Berikan sinyal trading presisi maksimum untuk pair ${selectedPair} timeframe ${selectedTimeframe}. Harga saat ini: ${livePricesRef.current[selectedPair].price}.
 
-1. Tren (gunakan EMA 50 & 200):
-   - BUY: EMA 50 > EMA 200 (uptrend), harga di atas kedua EMA
-   - SELL: EMA 50 < EMA 200 (downtrend), harga di bawah kedua EMA
+SYARAT AKURASI SUPER DUPER TINGGI (WAJIB TERPENUHI, JIKA TIDAK = NO TRADE):
 
-2. Momentum RSI (14):
-   - BUY: RSI 30-45 dan mulai naik (bukan oversold ekstrem)
-   - SELL: RSI 55-70 dan mulai turun (bukan overbought ekstrem)
+1. Smart Money Concepts (SMC) & Struktur Pasar:
+   - Wajib ada konfirmasi Change of Character (ChoCh) atau Break of Structure (BOS) yang jelas pada timeframe ini, sejalan dengan higher timeframe.
+   - Entry hanya diizinkan pada area Order Block (OB) yang belum dimitigasi atau Fair Value Gap (FVG) kualitas tinggi.
 
-3. Konfirmasi MACD (12,26,9):
-   - BUY: histogram positif, garis MACD di atas signal
-   - SELL: histogram negatif, garis MACD di bawah signal
+2. Likuiditas (Liquidity Sweep):
+   - Wajib ada proses pengambilan likuiditas (Liquidity Sweep / Inducement) sebelum entry. Jangan masuk sebelum ritel trader terkena stop-loss (Trap).
 
-4. Volume (jika tersedia): meningkat 20% dari rata-rata
+3. Konfluensi Multi-Indikator:
+   - EMA 50 & 200: Tren timeframe eksekusi HARUS selaras dengan tren besar (H1/H4).
+   - RSI (14) & Divergence: Wajib ada validasi Hidden/Regular Divergence di area Ekstrim.
+   - MACD: Histogram & Sinyal Crossover harus sempurna bertepatan dengan OB/FVG.
 
-5. Support/Resistance:
-   - BUY: dekat support harian
-   - SELL: dekat resistance harian
+4. Volatilitas & Waktu (Killzones):
+   - Probabilitas tinggi jika berada pada jadwal overlap sisi London atau New York, dengan volume transaksi melonjak drastis.
 
-6. Tidak ada berita fundamental high impact 30 menit sebelum/sesudah.
+5. Risk/Reward Ratio (RR) Ekstrem Ketat:
+   - RR MInimal Wajib 1:3. Stop Loss harus ditutupi dan diamankan tepat di belakang struktur harga mayor (Swing High/Low) atau titik likuiditas invalid.
 
 Format output di JSON:
-- setupType: Isi dengan "BUY", "SELL", atau "NO TRADE". Jika kurang dari 4 kondisi terpenuhi, isi "NO TRADE - menunggu konfluensi lebih kuat".
-- analysis: Jelaskan rasio risiko (minimal 1:2) dan Keyakinan (%) berdasarkan jumlah konfirmasi.
-- confirmations: Daftarkan kondisi yang terpenuhi dari 1 sampai 5.
-- levels: Isi entry price, Stop Loss (offset pips), TP1 (RR 1:2), TP2 (RR 1:3), TP3.
-- Hanya beri sinyal jika minimal 4 dari 5 kondisi (poin 1-5) terpenuhi.
+- setupType: Isi "BUY" atau "SELL". JIKA ADA KONDISI YANG KURANG ATAU RAGU WALAUPUN SEDIKIT, WAJIB ISI "NO TRADE - Menunggu Setup Institusional Lebih Kuat".
+- analysis: Berikan insight SMC, FVG, dan likuiditas mengapa area ini sangat probabilitas tinggi (maksimal 2 kalimat singkat, rasio RR 1:3+).
+- confirmations: List konfirmasi mendalam berdasarkan panduan SMC & indikator di atas.
+- levels: Hitung Entry akurat di ujung FVG/OB, SL di luar zona likuiditas, TP1(RR 1:2), TP2(RR 1:3), TP3(1:5+).
+- Hanya beri sinyal entry JIKA probabilitas sukses secara teori mendekati kepastian berdasarkan parameter institusional.
 `,
         config: {
           responseMimeType: "application/json",
@@ -439,7 +439,14 @@ Format output di JSON:
       });
 
       const response = await model;
-      const rawData = JSON.parse(response.text);
+      let responseText = response.text || '';
+      // Hapus blok markdown json jika ada
+      if (responseText.includes('```json')) {
+         responseText = responseText.replace(/```json\n?/, '').replace(/```\n?$/, '');
+      } else if (responseText.includes('```')) {
+         responseText = responseText.replace(/```\n?/, '').replace(/```\n?$/, '');
+      }
+      const rawData = JSON.parse(responseText);
       const normalizedData = normalizeMarketData(rawData);
       
       setData(normalizedData);
@@ -874,11 +881,11 @@ Format output di JSON:
   const calculateRR = (entry: number, sl: number, ratio: number, isBtc: boolean) => {
     const risk = Math.abs(entry - sl);
     
-    // Validate risk to be between 50-100 pips for XAU (5.0 - 10.0) and 500-1000 for BTC
+    // Validate risk to be between 50-100 pips for XAU (5.0 - 10.0) and 50-150 for BTC
     let effectiveRisk = risk;
     if (isBtc) {
-      if (effectiveRisk < 500) effectiveRisk = 500;
-      if (effectiveRisk > 1500) effectiveRisk = 1500;
+      if (effectiveRisk < 50) effectiveRisk = 50;
+      if (effectiveRisk > 150) effectiveRisk = 150;
     } else {
       if (effectiveRisk < 5.00) effectiveRisk = 5.00 + (Math.random() * 2); // 50-70 pips
       if (effectiveRisk > 10.00) effectiveRisk = 10.00; // Max 100 pips
@@ -926,14 +933,14 @@ Format output di JSON:
     
     // Dynamic SL offset based on timeframe
     let xauSLOffset = 0.50; // 50 pips (Scalping)
-    let btcSLOffset = 150;  // 150 pips
+    let btcSLOffset = 50;  // 50 pips
     
     if (selectedTimeframe === '15M' || selectedTimeframe === '30M') {
       xauSLOffset = 1.50; // 150 pips (Intraday)
-      btcSLOffset = 500;
+      btcSLOffset = 50;
     } else if (selectedTimeframe === '1H' || selectedTimeframe === '4H' || selectedTimeframe === '1D') {
       xauSLOffset = 5.00; // 500 pips (Swing)
-      btcSLOffset = 1500;
+      btcSLOffset = 50;
     }
 
     const xauSL = isLevelValid(rawXau.sl, xauPrice) ? parseFloat(String(rawXau.sl).replace(/,/g, '')) : xauPrice - xauSLOffset;
@@ -969,15 +976,15 @@ Format output di JSON:
 
     const processSwing = (raw: any, currentPrice: number, isBtc: boolean) => {
       // Dynamic offsets for swing/log levels
-      let entryOffset = isBtc ? 100 : 0.50; // Scalping
-      let slOffset = isBtc ? 300 : 1.00;
+      let entryOffset = isBtc ? 10 : 0.50; // Scalping
+      let slOffset = isBtc ? 50 : 1.00;
       
       if (selectedTimeframe === '15M' || selectedTimeframe === '30M') {
-        entryOffset = isBtc ? 300 : 1.50; // Intraday
-        slOffset = isBtc ? 1000 : 3.00;
+        entryOffset = isBtc ? 20 : 1.50; // Intraday
+        slOffset = isBtc ? 50 : 3.00;
       } else if (selectedTimeframe === '1H' || selectedTimeframe === '4H' || selectedTimeframe === '1D') {
-        entryOffset = isBtc ? 1000 : 5.00; // Swing
-        slOffset = isBtc ? 3000 : 10.00;
+        entryOffset = isBtc ? 30 : 5.00; // Swing
+        slOffset = isBtc ? 50 : 10.00;
       }
 
       const buyEntry = isLevelValid(raw.buy?.entry, currentPrice) ? parseFloat(String(raw.buy.entry).replace(/,/g, '')) : currentPrice - entryOffset;
@@ -1363,7 +1370,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
   }, [data, selectedPair, swingAction, useCustomSwing]);
 
   return (
-    <div className="space-y-4 pb-12 font-sans bg-[#050505] min-h-screen text-white p-4">
+    <div className="space-y-4 pb-12 font-sans min-h-screen text-white p-4">
       {/* Header Section */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex flex-col">
@@ -1402,7 +1409,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                 onClick={() => { setSelectedPair('BTC/USD'); setShowPairDropdown(false); }}
                 className={`flex items-center gap-2 px-4 py-3 hover:bg-white/5 transition-colors ${selectedPair === 'BTC/USD' ? 'bg-white/5' : ''}`}
               >
-                <div className="w-2 h-2 rounded-full bg-orange-500" />
+                <div className="w-2 h-2 rounded-full bg-violet-500" />
                 <span className="text-sm font-black text-white tracking-tighter">BTCUSD</span>
                 <span className="text-[10px] font-bold text-white/40 uppercase ml-auto">BITCOIN</span>
               </button>
@@ -1417,7 +1424,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
               onClick={() => setSelectedTimeframe(tf.replace('M', 'M').replace('H', 'H') as Timeframe)}
               className={`text-[11px] font-black tracking-widest transition-all px-3 py-1.5 rounded-lg ${
                 selectedTimeframe === tf.replace('M', 'M').replace('H', 'H')
-                  ? 'bg-cyan-400/20 text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] border border-cyan-400/40 shadow-[0_0_15px_rgba(34,211,238,0.4)] shadow-[0_0_10px_rgba(34,197,94,0.2)]'
+                  ? 'bg-indigo-400/20 text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)] border border-indigo-400/40 shadow-[0_0_15px_rgba(129,140,248,0.4)] shadow-[0_0_10px_rgba(34,197,94,0.2)]'
                   : 'text-white/30 hover:text-white/60'
               }`}
             >
@@ -1435,10 +1442,10 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
             <div className="w-full h-24 bg-[#0A0A0A] border border-white/10 rounded-2xl p-3 flex flex-col justify-center">
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 bg-fuchsia-500 rounded-full animate-ping" />
+                  <div className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-ping" />
                   <span className="text-[8px] font-black text-white/60 uppercase tracking-widest">Live Scalp Monitor</span>
                 </div>
-                <span className="text-xs font-mono font-black text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]">
+                <span className="text-xs font-mono font-black text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]">
                   {livePrices[selectedPair].price.toFixed(selectedPair === 'XAU/USD' ? 2 : 1)}
                 </span>
               </div>
@@ -1459,15 +1466,15 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
             </div>
           )}
 
-          <div className="h-[450px] w-full bg-black rounded-2xl border border-white/5 overflow-hidden relative group shadow-2xl">
+          <div className="h-[450px] w-full bg-[#0A0A0A]/40 backdrop-blur-md rounded-2xl border border-white/5 overflow-hidden relative group shadow-2xl">
             <TradingViewWidget symbol={selectedPair} timeframe={selectedTimeframe} />
           </div>
 
           {/* RSI Divergence Indicator (Below Chart) */}
           <div className="w-full bg-[#0A0A0A] border border-white/10 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-3">
-              <Activity size={14} className="text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.8)]" />
-              <span className="text-[10px] font-bold text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.8)] uppercase tracking-widest">Multi-Timeframe RSI Divergence</span>
+              <Activity size={14} className="text-indigo-400 drop-shadow-[0_0_10px_rgba(129,140,248,0.8)]" />
+              <span className="text-[10px] font-bold text-indigo-400 drop-shadow-[0_0_10px_rgba(129,140,248,0.8)] uppercase tracking-widest">Multi-Timeframe RSI Divergence</span>
             </div>
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
               {(data?.indicators?.rsiDivergence ? [
@@ -1487,15 +1494,15 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
               ]).map((item, idx) => (
                 <div key={idx} className={`p-2 rounded-xl flex flex-col items-center justify-center text-center border transition-all ${
                   item.val === 'BULLISH' 
-                    ? 'bg-cyan-400/10 border-cyan-400/30 shadow-[0_0_10px_rgba(34,211,238,0.2)]' 
+                    ? 'bg-indigo-400/10 border-indigo-400/30 shadow-[0_0_10px_rgba(129,140,248,0.2)]' 
                     : item.val === 'BEARISH'
-                      ? 'bg-fuchsia-500/10 border-fuchsia-500/30 shadow-[0_0_10px_rgba(217,70,239,0.2)]'
+                      ? 'bg-purple-500/10 border-purple-500/30 shadow-[0_0_10px_rgba(168,85,247,0.2)]'
                       : 'bg-white/5 border-white/10'
                 }`}>
                   <span className="text-[9px] text-white/50 font-bold uppercase tracking-widest mb-1">{item.tf}</span>
                   <span className={`text-[8px] font-black uppercase tracking-wider ${
-                    item.val === 'BULLISH' ? 'text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' :
-                    item.val === 'BEARISH' ? 'text-fuchsia-400 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]' :
+                    item.val === 'BULLISH' ? 'text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]' :
+                    item.val === 'BEARISH' ? 'text-purple-400 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]' :
                     'text-white/20'
                   }`}>
                     {item.val === 'NONE' ? '-' : item.val}
@@ -1540,7 +1547,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                 </div>
 
                 <div className="p-3 bg-white/5 border border-white/5 rounded-lg space-y-2">
-                  <div className="flex items-center gap-2 text-orange-400">
+                  <div className="flex items-center gap-2 text-violet-400">
                     <Activity size={12} />
                     <span className="text-[10px] font-bold uppercase tracking-wider">Day Trading</span>
                   </div>
@@ -1553,7 +1560,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                 </div>
 
                 <div className="p-3 bg-white/5 border border-white/5 rounded-lg space-y-2">
-                  <div className="flex items-center gap-2 text-fuchsia-400">
+                  <div className="flex items-center gap-2 text-purple-400">
                     <Zap size={12} />
                     <span className="text-[10px] font-bold uppercase tracking-wider">Scalping</span>
                   </div>
@@ -1615,9 +1622,9 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                   <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
                   <span className="text-[9px] md:text-[8px] font-black uppercase tracking-widest">AUTO SIGNAL</span>
                 </button>
-                <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-cyan-400/10 rounded-full border border-cyan-400/20 shadow-[0_0_15px_rgba(34,211,238,0.4)]">
-                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                  <span className="text-[8px] font-black text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] uppercase tracking-widest">REAL-TIME AI</span>
+                <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-indigo-400/10 rounded-full border border-indigo-400/20 shadow-[0_0_15px_rgba(129,140,248,0.4)]">
+                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                  <span className="text-[8px] font-black text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)] uppercase tracking-widest">REAL-TIME AI</span>
                 </div>
                 {/* Desktop Tab */}
                 <div className="hidden md:flex bg-white/5 p-1 rounded-xl border border-white/10">
@@ -1636,8 +1643,8 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                   ))}
                 </div>
                 <span className={`text-[8px] sm:text-[9px] px-2 sm:px-3 py-1.5 rounded-xl border font-black uppercase tracking-[0.1em] text-center flex-1 md:flex-none ${
-                  data?.predictions?.h1?.direction === 'UP' ? 'bg-cyan-400/10 border-cyan-400/30 shadow-[0_0_15px_rgba(34,211,238,0.4)] text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]' : 
-                  data?.predictions?.h1?.direction === 'DOWN' ? 'bg-fuchsia-500/10 border-fuchsia-500/30 shadow-[0_0_15px_rgba(217,70,239,0.4)] text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]' : 
+                  data?.predictions?.h1?.direction === 'UP' ? 'bg-indigo-400/10 border-indigo-400/30 shadow-[0_0_15px_rgba(129,140,248,0.4)] text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]' : 
+                  data?.predictions?.h1?.direction === 'DOWN' ? 'bg-purple-500/10 border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.4)] text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]' : 
                   'bg-white/5 border-white/10 text-white/30'
                 }`}>
                   {data?.predictions?.h1?.direction === 'UP' ? 'BULLISH' : data?.predictions?.h1?.direction === 'DOWN' ? 'BEARISH' : 'NEUTRAL'}
@@ -1686,15 +1693,15 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                         <motion.div 
                           initial={{ opacity: 0, y: -10 }}
                           animate={{ opacity: 1, y: 0 }}
-                          className="bg-fuchsia-500/10 border border-fuchsia-500/30 rounded-2xl p-4 shadow-[0_0_15px_rgba(217,70,239,0.2)] mb-4"
+                          className="bg-purple-500/10 border border-purple-500/30 rounded-2xl p-4 shadow-[0_0_15px_rgba(168,85,247,0.2)] mb-4"
                         >
                           <div className="flex items-start gap-3">
-                            <AlertTriangle className="text-fuchsia-400 mt-1 flex-shrink-0 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)] animate-pulse" size={18} />
+                            <AlertTriangle className="text-purple-400 mt-1 flex-shrink-0 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)] animate-pulse" size={18} />
                             <div>
-                              <h4 className="text-[10px] font-bold text-fuchsia-400 uppercase tracking-widest mb-1 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]">
+                              <h4 className="text-[10px] font-bold text-purple-400 uppercase tracking-widest mb-1 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]">
                                 Peringatan Zona Kritis
                               </h4>
-                              <p className="text-xs text-fuchsia-200/80 leading-relaxed font-medium">
+                              <p className="text-xs text-purple-200/80 leading-relaxed font-medium">
                                 {isNearResistance 
                                   ? `Harga masuk ke zona RESISTANCE psikologis di kisaran ${data.levels[pairKey].resistance}. Sorotan: Bersiap untuk potensi REVERSAL (pembalikan arah) ke bawah atau BREAKOUT jika momentum kuat.` 
                                   : `Harga masuk ke zona SUPPORT signifikan di kisaran ${data.levels[pairKey].support}. Sorotan: Waspadai potensi REVERSAL (pantulan kembali) ke atas atau BREAKDOWN jika tekanan jual berlanjut.`}
@@ -1730,14 +1737,14 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                     {/* Stop Loss Card */}
                     <motion.div 
                       whileHover={{ scale: 1.02 }}
-                      className="p-3 sm:p-4 bg-fuchsia-500/5 border border-fuchsia-500/10 shadow-[0_0_15px_rgba(217,70,239,0.4)] rounded-2xl flex items-center gap-3 sm:gap-4 group cursor-pointer"
+                      className="p-3 sm:p-4 bg-purple-500/5 border border-purple-500/10 shadow-[0_0_15px_rgba(168,85,247,0.4)] rounded-2xl flex items-center gap-3 sm:gap-4 group cursor-pointer"
                     >
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-fuchsia-500/10 rounded-2xl flex items-center justify-center border border-fuchsia-500/20 shadow-[0_0_15px_rgba(217,70,239,0.4)] flex-shrink-0">
-                        <TrendingDown size={20} className="text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)] sm:w-6 sm:h-6" />
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-500/10 rounded-2xl flex items-center justify-center border border-purple-500/20 shadow-[0_0_15px_rgba(168,85,247,0.4)] flex-shrink-0">
+                        <TrendingDown size={20} className="text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)] sm:w-6 sm:h-6" />
                       </div>
                       <div className="overflow-hidden">
-                        <p className="text-[8px] sm:text-[9px] text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]/50 uppercase font-bold tracking-[0.2em] mb-0.5 sm:mb-1 truncate">Batasi Kerugian (SL)</p>
-                        <p className="text-xl sm:text-2xl font-black text-fuchsia-500 drop-shadow-[0_0_8px_rgba(217,70,239,0.8)] tracking-tighter">
+                        <p className="text-[8px] sm:text-[9px] text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]/50 uppercase font-bold tracking-[0.2em] mb-0.5 sm:mb-1 truncate">Batasi Kerugian (SL)</p>
+                        <p className="text-xl sm:text-2xl font-black text-purple-500 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)] tracking-tighter">
                           {signalTab === 'XAU' ? data.levels.xau.sl : data.levels.btc.sl}
                         </p>
                       </div>
@@ -1746,14 +1753,14 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                     {/* Take Profits Card */}
                     <motion.div 
                       whileHover={{ scale: 1.01 }}
-                      className="p-3 sm:p-4 bg-cyan-400/5 border border-cyan-400/10 shadow-[0_0_15px_rgba(34,211,238,0.4)] rounded-3xl space-y-3 sm:space-y-4"
+                      className="p-3 sm:p-4 bg-indigo-400/5 border border-indigo-400/10 shadow-[0_0_15px_rgba(129,140,248,0.4)] rounded-3xl space-y-3 sm:space-y-4"
                     >
                       <div className="flex items-center gap-3 sm:gap-4">
-                        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-cyan-400/10 rounded-2xl flex items-center justify-center border border-cyan-400/20 shadow-[0_0_15px_rgba(34,211,238,0.4)] flex-shrink-0">
-                          <TrendingUp size={20} className="text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] sm:w-6 sm:h-6" />
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-indigo-400/10 rounded-2xl flex items-center justify-center border border-indigo-400/20 shadow-[0_0_15px_rgba(129,140,248,0.4)] flex-shrink-0">
+                          <TrendingUp size={20} className="text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)] sm:w-6 sm:h-6" />
                         </div>
                         <div className="overflow-hidden">
-                          <p className="text-[8px] sm:text-[9px] text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]/50 uppercase font-bold tracking-[0.1em] sm:tracking-[0.2em] truncate">Target Keuntungan (TP)</p>
+                          <p className="text-[8px] sm:text-[9px] text-indigo-400 drop-shadow-[0_0_8px_rgba(129,140,248,0.8)]/50 uppercase font-bold tracking-[0.1em] sm:tracking-[0.2em] truncate">Target Keuntungan (TP)</p>
                         </div>
                       </div>
                       
@@ -1763,9 +1770,9 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                           { label: 'TP 2', value: signalTab === 'XAU' ? data.levels.xau.tp2 : data.levels.btc.tp2 },
                           { label: 'TP 3', value: signalTab === 'XAU' ? data.levels.xau.tp3 : data.levels.btc.tp3 }
                         ].map((tp, i) => (
-                          <div key={i} className="bg-white/5 p-2 sm:p-3 rounded-2xl border border-white/5 text-center group hover:bg-cyan-400/10 transition-all cursor-pointer">
+                          <div key={i} className="bg-white/5 p-2 sm:p-3 rounded-2xl border border-white/5 text-center group hover:bg-indigo-400/10 transition-all cursor-pointer">
                             <p className="text-[6px] sm:text-[7px] text-white/20 uppercase font-black mb-1 sm:mb-1.5 tracking-widest">{tp.label}</p>
-                            <p className="text-[10px] sm:text-xs font-black text-cyan-300 tracking-tighter group-hover:scale-110 transition-transform truncate">
+                            <p className="text-[10px] sm:text-xs font-black text-indigo-300 tracking-tighter group-hover:scale-110 transition-transform truncate">
                               {tp.value}
                             </p>
                           </div>
@@ -1775,7 +1782,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
                     
                     {/* Live Sync Status */}
                     <div className="pt-2 flex items-center justify-center gap-2">
-                       <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                       <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
                        <span className="text-[8px] font-black text-white/30 uppercase tracking-[0.3em]">Market Real-Time Feed</span>
                     </div>
                   </div>
@@ -1864,14 +1871,14 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
 
           <div className="bg-[#0A0A0A] border border-white/10 rounded-xl p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-white/5 pb-2">
-              <h3 className="text-[10px] font-bold text-orange-500 uppercase tracking-widest flex items-center gap-2">
+              <h3 className="text-[10px] font-bold text-violet-500 uppercase tracking-widest flex items-center gap-2">
                 <Globe size={14} />
                 Kalender Ekonomi
               </h3>
               <select 
                 value={impactFilter}
                 onChange={(e) => setImpactFilter(e.target.value as any)}
-                className="bg-white/5 border border-white/10 rounded px-2 py-0.5 text-[8px] font-bold text-white/60 uppercase tracking-widest focus:outline-none focus:border-orange-500/50 transition-colors cursor-pointer"
+                className="bg-white/5 border border-white/10 rounded px-2 py-0.5 text-[8px] font-bold text-white/60 uppercase tracking-widest focus:outline-none focus:border-violet-500/50 transition-colors cursor-pointer"
               >
                 <option value="ALL">SEMUA IMPACT</option>
                 <option value="HIGH">HIGH IMPACT</option>
@@ -1888,17 +1895,17 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
             ) : data ? (
               <div className="space-y-2">
                 {filteredCalendar.map((event, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-2 bg-white/5 border border-white/10 rounded group hover:border-orange-500/30 transition-colors">
+                  <div key={idx} className="flex items-center justify-between p-2 bg-white/5 border border-white/10 rounded group hover:border-violet-500/30 transition-colors">
                     <div className="flex flex-col gap-0.5">
                       <div className="flex items-center gap-2">
-                        <span className="text-[9px] font-mono text-orange-500">{event.time}</span>
+                        <span className="text-[9px] font-mono text-violet-500">{event.time}</span>
                         <span className="text-[8px] px-1 bg-white/10 text-white/60 rounded font-bold">{event.currency}</span>
                       </div>
                       <span className="text-[10px] text-white font-medium line-clamp-1">{event.event}</span>
                     </div>
                     <div className={`w-1.5 h-1.5 rounded-full ${
-                      event.impact === 'HIGH' ? 'bg-fuchsia-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 
-                      event.impact === 'MEDIUM' ? 'bg-orange-500' : 'bg-yellow-500'
+                      event.impact === 'HIGH' ? 'bg-purple-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 
+                      event.impact === 'MEDIUM' ? 'bg-violet-500' : 'bg-blue-500'
                     }`} title={`Dampak ${event.impact}`} />
                   </div>
                 ))}
@@ -1966,25 +1973,25 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[8px] text-white/30 uppercase font-bold tracking-widest text-fuchsia-400">Batasi Kerugian (SL)</label>
+                  <label className="text-[8px] text-white/30 uppercase font-bold tracking-widest text-purple-400">Batasi Kerugian (SL)</label>
                   <input 
                     type="text" 
                     placeholder="Harga SL"
                     value={logSL}
                     onChange={(e) => setLogSL(e.target.value)}
                     onBlur={(e) => setLogSL(String(parseFloat(String(e.target.value).replace(/,/g, '')) || ''))}
-                    className="w-full bg-white/5 border border-fuchsia-500/20 shadow-[0_0_15px_rgba(217,70,239,0.4)] rounded px-2 py-1.5 text-xs font-bold text-fuchsia-400 focus:outline-none focus:border-fuchsia-500/50 shadow-[0_0_15px_rgba(217,70,239,0.4)] transition-colors"
+                    className="w-full bg-white/5 border border-purple-500/20 shadow-[0_0_15px_rgba(168,85,247,0.4)] rounded px-2 py-1.5 text-xs font-bold text-purple-400 focus:outline-none focus:border-purple-500/50 shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-colors"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[8px] text-white/30 uppercase font-bold tracking-widest text-cyan-300">Target Keuntungan (TP)</label>
+                  <label className="text-[8px] text-white/30 uppercase font-bold tracking-widest text-indigo-300">Target Keuntungan (TP)</label>
                   <input 
                     type="text" 
                     placeholder="Harga TP"
                     value={logTP}
                     onChange={(e) => setLogTP(e.target.value)}
                     onBlur={(e) => setLogTP(String(parseFloat(String(e.target.value).replace(/,/g, '')) || ''))}
-                    className="w-full bg-white/5 border border-cyan-400/20 shadow-[0_0_15px_rgba(34,211,238,0.4)] rounded px-2 py-1.5 text-xs font-bold text-cyan-300 focus:outline-none focus:border-cyan-400/50 shadow-[0_0_15px_rgba(34,211,238,0.4)] transition-colors"
+                    className="w-full bg-white/5 border border-indigo-400/20 shadow-[0_0_15px_rgba(129,140,248,0.4)] rounded px-2 py-1.5 text-xs font-bold text-indigo-300 focus:outline-none focus:border-indigo-400/50 shadow-[0_0_15px_rgba(129,140,248,0.4)] transition-colors"
                   />
                 </div>
               </div>
@@ -2001,7 +2008,7 @@ Disclaimer: Trading involves high risk. This report is for informational purpose
               <button
                 onClick={handleLogTrade}
                 disabled={isLogging}
-                className="w-full bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-black font-black py-2.5 rounded-xl text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2"
+                className="w-full bg-white hover:bg-gray-200 disabled:opacity-50 text-black font-black py-2.5 rounded-xl text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-white/20 flex items-center justify-center gap-2"
               >
                 {isLogging ? <RefreshCw className="animate-spin" size={14} /> : <BarChart2 size={14} />}
                 Catat ke Performa

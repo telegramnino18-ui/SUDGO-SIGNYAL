@@ -30,6 +30,7 @@
     "react-hot-toast": "^2.6.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.13.2",
+    "react-ts-tradingview-widgets": "^1.2.8",
     "recharts": "^3.8.1",
     "vite": "^6.2.0"
   },
