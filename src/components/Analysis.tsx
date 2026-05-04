@@ -244,7 +244,7 @@ Format output di JSON:
 - setupType: Isi "BUY" atau "SELL". JIKA ADA KONDISI YANG KURANG ATAU RAGU WALAUPUN SEDIKIT, WAJIB ISI "NO TRADE - Menunggu Setup Institusional Lebih Kuat".
 - analysis: Berikan insight SMC, FVG, dan likuiditas mengapa area ini sangat probabilitas tinggi (maksimal 2 kalimat singkat, rasio RR 1:3+).
 - confirmations: List konfirmasi mendalam berdasarkan panduan SMC & indikator di atas.
-- levels: Hitung Entry akurat di ujung FVG/OB, SL di luar zona likuiditas, TP1(RR 1:2), TP2(RR 1:3), TP3(1:5+).
+- levels: Hitung Entry akurat di ujung FVG/OB, SL di luar zona likuiditas (MINIMAL 50 pips = Jarak 5.0 nominal harga untuk XAU/USD), TP1(RR 1:2), TP2(RR 1:3), TP3(1:5+).
 - Hanya beri sinyal entry JIKA probabilitas sukses secara teori mendekati kepastian berdasarkan parameter institusional.
 `,
         config: {
@@ -929,24 +929,43 @@ Format output di JSON:
       return refPrice + offset;
     };
 
-    const xauEntry = isEntryValid(rawXau.entry, xauPrice) ? parseFloat(String(rawXau.entry).replace(/,/g, '')) : xauPrice;
-    
     // Dynamic SL offset based on timeframe
-    let xauSLOffset = 0.50; // 50 pips (Scalping)
-    let btcSLOffset = 50;  // 50 pips
+    let xauMinRisk = 3.00; // minimal pips
+    let xauSLOffset = 3.00; 
+    let btcSLOffset = 300;  
     
     if (selectedTimeframe === '15M' || selectedTimeframe === '30M') {
-      xauSLOffset = 1.50; // 150 pips (Intraday)
-      btcSLOffset = 50;
+      xauMinRisk = 5.00;
+      xauSLOffset = 5.00; 
+      btcSLOffset = 500;
     } else if (selectedTimeframe === '1H' || selectedTimeframe === '4H' || selectedTimeframe === '1D') {
-      xauSLOffset = 5.00; // 500 pips (Swing)
-      btcSLOffset = 50;
+      xauMinRisk = 8.00;
+      xauSLOffset = 8.00; 
+      btcSLOffset = 800;
     }
 
-    const xauSL = isLevelValid(rawXau.sl, xauPrice) ? parseFloat(String(rawXau.sl).replace(/,/g, '')) : xauPrice - xauSLOffset;
+    const validateSL = (entryRaw: any, slRaw: any, refPrice: number, minRisk: number, defaultOffset: number) => {
+      const entry = isEntryValid(entryRaw, refPrice) ? parseFloat(String(entryRaw).replace(/,/g, '')) : refPrice;
+      const rawSlNum = slRaw ? parseFloat(String(slRaw).replace(/,/g, '')) : NaN;
+      
+      let finalSL = entry - defaultOffset; // Default buy SL
+      if (!isNaN(rawSlNum) && isLevelValid(rawSlNum, refPrice)) {
+        const risk = Math.abs(entry - rawSlNum);
+        if (risk >= minRisk) {
+          finalSL = rawSlNum;
+        } else {
+          // If too small, enforce minimum distance according to direction
+          finalSL = rawSlNum > entry ? entry + minRisk : entry - minRisk;
+        }
+      }
+      return finalSL;
+    };
+
+    const xauEntry = isEntryValid(rawXau.entry, xauPrice) ? parseFloat(String(rawXau.entry).replace(/,/g, '')) : xauPrice;
+    const xauSL = validateSL(rawXau.entry, rawXau.sl, xauPrice, xauMinRisk, xauSLOffset);
     
     const btcEntry = isEntryValid(rawBtc.entry, btcPrice) ? parseFloat(String(rawBtc.entry).replace(/,/g, '')) : btcPrice;
-    const btcSL = isLevelValid(rawBtc.sl, btcPrice) ? parseFloat(String(rawBtc.sl).replace(/,/g, '')) : btcPrice - btcSLOffset;
+    const btcSL = validateSL(rawBtc.entry, rawBtc.sl, btcPrice, btcSLOffset, btcSLOffset);
 
     const levels = {
       xau: {
@@ -976,22 +995,35 @@ Format output di JSON:
 
     const processSwing = (raw: any, currentPrice: number, isBtc: boolean) => {
       // Dynamic offsets for swing/log levels
-      let entryOffset = isBtc ? 10 : 0.50; // Scalping
-      let slOffset = isBtc ? 50 : 1.00;
+      let entryOffset = isBtc ? 50 : 2.00; // Scalping
+      let slMinRisk = isBtc ? 300 : 3.00;
+      let slOffset = isBtc ? 300 : 3.00;
       
       if (selectedTimeframe === '15M' || selectedTimeframe === '30M') {
-        entryOffset = isBtc ? 20 : 1.50; // Intraday
-        slOffset = isBtc ? 50 : 3.00;
+        entryOffset = isBtc ? 100 : 4.00; // Intraday
+        slMinRisk = isBtc ? 500 : 5.00;
+        slOffset = isBtc ? 500 : 5.00;
       } else if (selectedTimeframe === '1H' || selectedTimeframe === '4H' || selectedTimeframe === '1D') {
-        entryOffset = isBtc ? 30 : 5.00; // Swing
-        slOffset = isBtc ? 50 : 10.00;
+        entryOffset = isBtc ? 200 : 6.00; // Swing
+        slMinRisk = isBtc ? 800 : 8.00;
+        slOffset = isBtc ? 800 : 8.00;
       }
 
       const buyEntry = isLevelValid(raw.buy?.entry, currentPrice) ? parseFloat(String(raw.buy.entry).replace(/,/g, '')) : currentPrice - entryOffset;
-      const buySL = isLevelValid(raw.buy?.sl, currentPrice) ? parseFloat(String(raw.buy.sl).replace(/,/g, '')) : buyEntry - slOffset;
+      const buySL = validateSL(raw.buy?.entry, raw.buy?.sl, currentPrice, slMinRisk, slOffset);
       
       const sellEntry = isLevelValid(raw.sell?.entry, currentPrice) ? parseFloat(String(raw.sell.entry).replace(/,/g, '')) : currentPrice + entryOffset;
-      const sellSL = isLevelValid(raw.sell?.sl, currentPrice) ? parseFloat(String(raw.sell.sl).replace(/,/g, '')) : sellEntry + slOffset;
+      // For sell SL, validateSL will default to entry - offset if rawSlNum is missing. We need to handle sell direction properly.
+      let sellSL = sellEntry + slOffset;
+      const rawSellSlNum = raw.sell?.sl ? parseFloat(String(raw.sell.sl).replace(/,/g, '')) : NaN;
+      if (!isNaN(rawSellSlNum) && isLevelValid(rawSellSlNum, currentPrice)) {
+        const risk = Math.abs(rawSellSlNum - sellEntry);
+        if (risk >= slMinRisk) {
+          sellSL = rawSellSlNum;
+        } else {
+          sellSL = rawSellSlNum < sellEntry ? sellEntry + slMinRisk : sellEntry + slMinRisk;
+        }
+      }
 
       return {
         buy: {
@@ -1082,15 +1114,18 @@ Format output di JSON:
       const volatility = (Math.random() * 2 + 0.5).toFixed(2) + '%';
       
       // Logika S/R: Berikan spread yang lebih lebar agar tidak menumpuk (RR lebih akurat)
-      const xauResistance = xauPrice + 2.50 + (Math.random() * 0.5);
-      const xauSupport = xauPrice - 2.50 - (Math.random() * 0.5);
-      const btcResistance = btcPrice + 450 + (Math.random() * 100);
-      const btcSupport = btcPrice - 450 - (Math.random() * 100);
+      const xauResistance = xauPrice + 5.00 + (Math.random() * 0.5);
+      const xauSupport = xauPrice - 5.00 - (Math.random() * 0.5);
+      const btcResistance = btcPrice + 600 + (Math.random() * 100);
+      const btcSupport = btcPrice - 600 - (Math.random() * 100);
 
       const isXauAtResistance = rsi > 60;
       const isXauAtSupport = rsi < 40;
       const isBtcAtResistance = btcPrice > (chartData[0]?.price || 0);
       const isBtcAtSupport = btcPrice < (chartData[0]?.price || 0);
+
+      let xauSLDist = 5.00; // 50 pips default
+      if (selectedTimeframe === '1H' || selectedTimeframe === '4H' || selectedTimeframe === '1D') xauSLDist = 8.00;
 
       const rawFallback = {
         analysis: `### ALGORITHM ANALYSIS (SYSTEM FALLBACK)\n\n**Sistem Algoritma Cerdas** telah mengidentifikasi lebih dari 30 metode analisa teknikal untuk memberikan perspektif jernih.\n\n**XAU/USD Analysis:**\nHarga saat ini berada di ${xauPrice.toFixed(2)}. ${isXauAtResistance ? 'Harga mendekati RESISTANCE, sinyal SELL disarankan.' : isXauAtSupport ? 'Harga mendekati SUPPORT, sinyal BUY disarankan.' : 'Harga berada di area netral.'} Berdasarkan indikator teknikal sistem, pasar menunjukkan kondisi ${rsi > 70 ? 'OVERBOUGHT' : rsi < 30 ? 'OVERSOLD' : 'NETRAL'}.\n\n**BTC/USD Analysis:**\nHarga BTC di ${btcPrice.toLocaleString()} menunjukkan volatilitas ${volatility}. ${isBtcAtResistance ? 'Harga mendekati RESISTANCE, sinyal SELL disarankan.' : isBtcAtSupport ? 'Harga mendekati SUPPORT, sinyal BUY disarankan.' : 'Harga berada di area netral.'} Tren jangka pendek terlihat ${btcPrice > (chartData[0]?.price || 0) ? 'BULLISH' : 'BEARISH'}.`,
@@ -1116,10 +1151,10 @@ Format output di JSON:
             support: xauSupport.toFixed(2), 
             pivot: xauPrice.toFixed(2), 
             entry: xauPrice.toFixed(2), 
-            sl: (isXauAtResistance ? xauPrice + 3.00 : xauPrice - 3.00).toFixed(2), 
-            tp: calculateRR(xauPrice, (isXauAtResistance ? xauPrice + 3.00 : xauPrice - 3.00), 2, false),
-            tp2: calculateRR(xauPrice, (isXauAtResistance ? xauPrice + 3.00 : xauPrice - 3.00), 3, false),
-            tp3: calculateRR(xauPrice, (isXauAtResistance ? xauPrice + 3.00 : xauPrice - 3.00), 4, false)
+            sl: (isXauAtResistance ? xauPrice + xauSLDist : xauPrice - xauSLDist).toFixed(2), 
+            tp: calculateRR(xauPrice, (isXauAtResistance ? xauPrice + xauSLDist : xauPrice - xauSLDist), 2, false),
+            tp2: calculateRR(xauPrice, (isXauAtResistance ? xauPrice + xauSLDist : xauPrice - xauSLDist), 3, false),
+            tp3: calculateRR(xauPrice, (isXauAtResistance ? xauPrice + xauSLDist : xauPrice - xauSLDist), 4, false)
           },
           btc: { 
             resistance: btcResistance.toFixed(0), 
