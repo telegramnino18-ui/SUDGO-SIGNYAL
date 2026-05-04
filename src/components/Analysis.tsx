@@ -930,9 +930,9 @@ Format output di JSON:
     };
 
     // Dynamic SL offset based on timeframe
-    let xauMinRisk = 3.00; // minimal pips
-    let xauSLOffset = 3.00; 
-    let btcSLOffset = 300;  
+    let xauMinRisk = 5.00; // 50 pips minimal
+    let xauSLOffset = 5.00; 
+    let btcSLOffset = 500;  
     
     if (selectedTimeframe === '15M' || selectedTimeframe === '30M') {
       xauMinRisk = 5.00;
@@ -996,8 +996,8 @@ Format output di JSON:
     const processSwing = (raw: any, currentPrice: number, isBtc: boolean) => {
       // Dynamic offsets for swing/log levels
       let entryOffset = isBtc ? 50 : 2.00; // Scalping
-      let slMinRisk = isBtc ? 300 : 3.00;
-      let slOffset = isBtc ? 300 : 3.00;
+      let slMinRisk = isBtc ? 500 : 5.00;
+      let slOffset = isBtc ? 500 : 5.00;
       
       if (selectedTimeframe === '15M' || selectedTimeframe === '30M') {
         entryOffset = isBtc ? 100 : 4.00; // Intraday
@@ -1106,8 +1106,8 @@ Format output di JSON:
   // Fungsi untuk menghasilkan data analisis sistem
     const generateSystemFallback = () => {
       setIsFallback(true);
-      const xauPrice = livePrices['XAU/USD']?.price || 2350.50;
-      const btcPrice = livePrices['BTC/USD']?.price || 65000.00;
+      const xauPrice = livePricesRef.current['XAU/USD']?.price || 2350.50;
+      const btcPrice = livePricesRef.current['BTC/USD']?.price || 65000.00;
       
       // Simulasi perhitungan teknikal sederhana
       const rsi = calculateLocalRSI(chartData.map(d => d.price));
@@ -1142,8 +1142,8 @@ Format output di JSON:
         "Volatility Index (ATR)"
       ],
         sentiment: {
-          xau: { label: isXauAtResistance ? 'BEARISH' : isXauAtSupport ? 'BULLISH' : (rsi > 50 ? 'BULLISH' : 'BEARISH'), value: rsi, change: livePrices['XAU/USD']?.change || '0%' },
-          btc: { label: isBtcAtResistance ? 'BEARISH' : isBtcAtSupport ? 'BULLISH' : (btcPrice > (chartData[0]?.price || 0) ? 'BULLISH' : 'BEARISH'), value: 65, change: livePrices['BTC/USD']?.change || '0%' }
+          xau: { label: isXauAtResistance ? 'BEARISH' : isXauAtSupport ? 'BULLISH' : (rsi > 50 ? 'BULLISH' : 'BEARISH'), value: rsi, change: livePricesRef.current['XAU/USD']?.change || '0%' },
+          btc: { label: isBtcAtResistance ? 'BEARISH' : isBtcAtSupport ? 'BULLISH' : (btcPrice > (chartData[0]?.price || 0) ? 'BULLISH' : 'BEARISH'), value: 65, change: livePricesRef.current['BTC/USD']?.change || '0%' }
         },
         levels: {
           xau: { 
@@ -1240,6 +1240,7 @@ Format output di JSON:
     setLoading(false);
     setIsFallback(true);
     toast.success('Ninz AI Aktif', {
+      id: 'ninz-ai-aktif-toast',
       icon: '⚙️',
       style: { background: '#0A0A0A', color: '#fff', border: '1px solid #3b82f6' }
     });
